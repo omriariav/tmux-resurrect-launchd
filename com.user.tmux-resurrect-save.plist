@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.user.tmux-resurrect-save</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>/opt/homebrew/bin/tmux ls &gt;/dev/null 2&gt;&amp;1 &amp;&amp; "$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh" quiet</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>900</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>__HOME__/Library/Logs/tmux-resurrect-save.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__HOME__/Library/Logs/tmux-resurrect-save.log</string>
+</dict>
+</plist>
