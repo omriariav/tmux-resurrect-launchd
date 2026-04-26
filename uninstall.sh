@@ -3,6 +3,7 @@ set -euo pipefail
 
 LABEL="com.user.tmux-resurrect-save"
 DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+DEST_TICK="$HOME/.local/bin/tmux-resurrect-tick"
 
 # Unload by file if present, and by label regardless. This handles the case
 # where the plist was deleted manually but the job is still loaded.
@@ -15,6 +16,11 @@ launchctl remove "$LABEL" 2>/dev/null || true
 if [ -f "$DEST_PLIST" ]; then
     echo "removing $DEST_PLIST"
     rm -f "$DEST_PLIST"
+fi
+
+if [ -f "$DEST_TICK" ]; then
+    echo "removing $DEST_TICK"
+    rm -f "$DEST_TICK"
 fi
 
 echo

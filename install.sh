@@ -2,8 +2,12 @@
 set -euo pipefail
 
 LABEL="com.user.tmux-resurrect-save"
-SRC_PLIST="$(cd "$(dirname "$0")" && pwd)/${LABEL}.plist"
+REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+SRC_PLIST="$REPO_DIR/${LABEL}.plist"
+SRC_TICK="$REPO_DIR/bin/tmux-resurrect-tick"
 DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+DEST_BIN_DIR="$HOME/.local/bin"
+DEST_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"
 LOG_FILE="$HOME/Library/Logs/tmux-resurrect-save.log"
 RESURRECT_SAVE="$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh"
 
@@ -20,15 +24,19 @@ if [ ! -x "$RESURRECT_SAVE" ]; then
     exit 1
 fi
 
-mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
+mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$DEST_BIN_DIR"
 
 # Always unload by file if present, *and* by label regardless, so a prior
 # partial install (loaded but plist deleted) gets cleaned up.
 launchctl unload -w "$DEST_PLIST" 2>/dev/null || true
 launchctl remove "$LABEL" 2>/dev/null || true
 
+echo "installing $DEST_TICK"
+sed -e "s|__HOME__|$HOME|g" -e "s|__TMUX_DIR__|$TMUX_DIR|g" "$SRC_TICK" > "$DEST_TICK"
+chmod 755 "$DEST_TICK"
+
 echo "installing $DEST_PLIST (tmux=$TMUX_BIN)"
-sed -e "s|__HOME__|$HOME|g" -e "s|__TMUX_DIR__|$TMUX_DIR|g" "$SRC_PLIST" > "$DEST_PLIST"
+sed -e "s|__BIN__|$DEST_BIN_DIR|g" -e "s|__HOME__|$HOME|g" "$SRC_PLIST" > "$DEST_PLIST"
 chmod 644 "$DEST_PLIST"
 
 echo "loading job"

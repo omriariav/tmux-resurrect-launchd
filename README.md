@@ -61,15 +61,20 @@ Removes the launchd job and the plist. Existing snapshots in `~/.tmux/resurrect/
 
 ## How it works
 
-The installer detects your tmux binary path (`command -v tmux`) and renders a plist that invokes, every `StartInterval` seconds:
+The installer drops a small named script at `~/.local/bin/tmux-resurrect-tick` and registers a `launchd` agent that runs it every `StartInterval` seconds. Using a named script (instead of an inline `/bin/sh -c` blob) makes the process show up as `tmux-resurrect-tick` in `ps`, Activity Monitor, and macOS Background Items notifications — not as a generic `sh`.
+
+The script:
 
 ```sh
-export PATH=<tmux-dir>:$PATH; tmux ls >/dev/null 2>&1 && <home>/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet
+export PATH=<tmux-dir>:$PATH
+tmux ls >/dev/null 2>&1 || exit 0
+exec tmux run-shell "<home>/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet"
 ```
 
-`PATH` is set explicitly because `launchd` jobs run with a minimal default `PATH` that omits `/opt/homebrew/bin` and `/usr/local/bin`, and `tmux-resurrect`'s scripts call bare `tmux` internally. `$HOME` is substituted to a literal path at install time because `launchd` doesn't reliably propagate it to children.
-
-If no tmux server is running, the save is skipped (no empty snapshots). If one is, `tmux-resurrect`'s normal save script runs in `quiet` mode.
+- `PATH` is set explicitly because `launchd` jobs run with a minimal default `PATH` that omits `/opt/homebrew/bin` and `/usr/local/bin`, and `tmux-resurrect`'s scripts call bare `tmux` internally.
+- `$HOME` is substituted to a literal path at install time because `launchd` doesn't reliably propagate it to children via `/bin/sh`.
+- If no tmux server is running, the save is skipped (no empty snapshots).
+- `save.sh` is wrapped in `tmux run-shell` rather than executed directly. Without an attached client, tmux's `display-message` mangles tab delimiters in its format output — `save.sh` relies on those tabs and would otherwise write 12-byte snapshots containing only `state_main_` (underscores in place of tabs). `tmux run-shell` establishes a proper client context, the same one `tmux-continuum` gets implicitly from being invoked inside `status-right`.
 
 ## License
 
