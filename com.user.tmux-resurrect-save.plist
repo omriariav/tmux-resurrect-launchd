@@ -9,7 +9,7 @@
     <array>
         <string>/bin/sh</string>
         <string>-c</string>
-        <string>/opt/homebrew/bin/tmux ls &gt;/dev/null 2&gt;&amp;1 &amp;&amp; "$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh" quiet</string>
+        <string>export PATH=__TMUX_DIR__:$PATH; tmux ls &gt;/dev/null 2&gt;&amp;1 &amp;&amp; __HOME__/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet</string>
     </array>
 
     <key>StartInterval</key>

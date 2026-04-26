@@ -23,10 +23,12 @@ Related upstream issues:
 
 You do **not** need to keep `tmux-continuum` — this replaces its autosave. Restore on tmux start (`prefix + Ctrl-r`) is still handled by `tmux-resurrect` directly.
 
+> **Disable continuum's autosave if you keep continuum installed.** Concurrent saves from this daemon and continuum can race over the same snapshot timestamp and pane-contents tarball. Either remove `tmux-continuum` from your tmux config, or set `set -g @continuum-save-interval '0'` in `~/.tmux.conf` to silence its timer while keeping its other behaviors (e.g. auto-restore on start).
+
 ## Install
 
 ```bash
-git clone https://github.com/<you>/tmux-resurrect-launchd.git
+git clone https://github.com/omriariav/tmux-resurrect-launchd.git
 cd tmux-resurrect-launchd
 ./install.sh
 ```
@@ -59,11 +61,13 @@ Removes the launchd job and the plist. Existing snapshots in `~/.tmux/resurrect/
 
 ## How it works
 
-The plist invokes a one-line shell command every `StartInterval` seconds:
+The installer detects your tmux binary path (`command -v tmux`) and renders a plist that invokes, every `StartInterval` seconds:
 
 ```sh
-tmux ls >/dev/null 2>&1 && "$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh" quiet
+export PATH=<tmux-dir>:$PATH; tmux ls >/dev/null 2>&1 && <home>/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet
 ```
+
+`PATH` is set explicitly because `launchd` jobs run with a minimal default `PATH` that omits `/opt/homebrew/bin` and `/usr/local/bin`, and `tmux-resurrect`'s scripts call bare `tmux` internally. `$HOME` is substituted to a literal path at install time because `launchd` doesn't reliably propagate it to children.
 
 If no tmux server is running, the save is skipped (no empty snapshots). If one is, `tmux-resurrect`'s normal save script runs in `quiet` mode.
 

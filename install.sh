@@ -7,10 +7,12 @@ DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 LOG_FILE="$HOME/Library/Logs/tmux-resurrect-save.log"
 RESURRECT_SAVE="$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh"
 
-if ! command -v tmux >/dev/null 2>&1; then
+TMUX_BIN="$(command -v tmux || true)"
+if [ -z "$TMUX_BIN" ]; then
     echo "error: tmux not found on PATH" >&2
     exit 1
 fi
+TMUX_DIR="$(dirname "$TMUX_BIN")"
 
 if [ ! -x "$RESURRECT_SAVE" ]; then
     echo "error: tmux-resurrect not found at $RESURRECT_SAVE" >&2
@@ -20,13 +22,14 @@ fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 
-if [ -f "$DEST_PLIST" ]; then
-    echo "unloading existing job"
-    launchctl unload -w "$DEST_PLIST" 2>/dev/null || true
-fi
+# Always unload by file if present, *and* by label regardless, so a prior
+# partial install (loaded but plist deleted) gets cleaned up.
+launchctl unload -w "$DEST_PLIST" 2>/dev/null || true
+launchctl remove "$LABEL" 2>/dev/null || true
 
-echo "installing $DEST_PLIST"
-sed "s|__HOME__|$HOME|g" "$SRC_PLIST" > "$DEST_PLIST"
+echo "installing $DEST_PLIST (tmux=$TMUX_BIN)"
+sed -e "s|__HOME__|$HOME|g" -e "s|__TMUX_DIR__|$TMUX_DIR|g" "$SRC_PLIST" > "$DEST_PLIST"
+chmod 644 "$DEST_PLIST"
 
 echo "loading job"
 launchctl load -w "$DEST_PLIST"
