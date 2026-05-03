@@ -312,9 +312,11 @@ execute_restore() {
 
     echo
     echo "Restored. Sessions on the server now:"
-    tmux ls
+    # tmux ls exits 1 if zero sessions exist — that's a degenerate restore,
+    # not a script failure, so don't let `set -e` punt us into the trap.
+    tmux ls 2>&1 || true
     echo
-    primary=$(tmux ls -F '#{session_name}' | grep -v "^$bootstrap\$" | head -1 || true)
+    primary=$(tmux ls -F '#{session_name}' 2>/dev/null | grep -v "^$bootstrap\$" | head -1 || true)
     [ -z "$primary" ] && primary='<session-name>'
     echo "Attach via iTerm2 -CC integration with:"
     echo "    tmux -CC attach -t $primary"
@@ -346,8 +348,8 @@ while [ $# -gt 0 ]; do
 done
 
 # Anything that mutates state requires running outside tmux. --list is
-# read-only and works fine inside tmux. The interactive picker also
-# tolerates tmux for browsing, but bails before kill-server.
+# read-only and works fine inside tmux. Interactive mode is rejected
+# too — the picker leads directly to kill-server with no early exit.
 if [ "$mode" != "list" ] && [ -n "${TMUX:-}" ]; then
     die "cannot run from inside tmux (would kill the server you're in). Open a fresh shell and re-run."
 fi
