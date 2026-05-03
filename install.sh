@@ -4,12 +4,13 @@ set -euo pipefail
 LABEL="com.user.tmux-resurrect-save"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_PLIST="$REPO_DIR/${LABEL}.plist"
-SRC_TICK="$REPO_DIR/bin/tmux-resurrect-tick"
+SRC_SAVE_BIN="$REPO_DIR/bin/tmux-resurrect-save"
 SRC_PRECHECK="$REPO_DIR/bin/tmux-resurrect-precheck"
 SRC_RESTORE="$REPO_DIR/restore.sh"
 DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 DEST_BIN_DIR="$HOME/.local/bin"
-DEST_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"
+DEST_SAVE_BIN="$DEST_BIN_DIR/tmux-resurrect-save"
+LEGACY_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"
 DEST_PRECHECK="$DEST_BIN_DIR/tmux-resurrect-precheck"
 DEST_RESTORE="$DEST_BIN_DIR/tmux-resurrect-restore"
 LOG_FILE="$HOME/Library/Logs/tmux-resurrect-save.log"
@@ -54,9 +55,16 @@ mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs" "$DEST_BIN_DIR"
 launchctl unload -w "$DEST_PLIST" 2>/dev/null || true
 launchctl remove "$LABEL" 2>/dev/null || true
 
-echo "installing $DEST_TICK"
-sed -e "s|__HOME__|$HOME|g" -e "s|__TMUX_DIR__|$TMUX_DIR|g" "$SRC_TICK" > "$DEST_TICK"
-chmod 755 "$DEST_TICK"
+echo "installing $DEST_SAVE_BIN"
+sed -e "s|__HOME__|$HOME|g" -e "s|__TMUX_DIR__|$TMUX_DIR|g" "$SRC_SAVE_BIN" > "$DEST_SAVE_BIN"
+chmod 755 "$DEST_SAVE_BIN"
+
+# Legacy: prior versions installed the same script as `tmux-resurrect-tick`.
+# Remove the dead binary so users upgrading don't have an orphan in PATH.
+if [ -f "$LEGACY_TICK" ]; then
+    echo "removing legacy $LEGACY_TICK"
+    rm -f "$LEGACY_TICK"
+fi
 
 echo "installing $DEST_PRECHECK"
 install -m 755 "$SRC_PRECHECK" "$DEST_PRECHECK"
@@ -136,10 +144,15 @@ if [ "$PRECHECK_MODE" = "enable" ]; then
 fi
 
 echo
-echo "installed. verify with:"
-echo "  launchctl list | grep tmux-resurrect-save"
-echo "  tail $LOG_FILE"
-echo "  ls -lt ~/.tmux/resurrect/ | head"
-echo "  tmux-resurrect-restore --list | head"
+echo "installed. RunAtLoad fired the first save — last log lines:"
+# Give launchd a beat to write the line, then show the freshest lines so
+# the user sees real proof of life before leaving the install.
+sleep 1
+if [ -f "$LOG_FILE" ]; then
+    sed 's/^/  /' "$LOG_FILE" | tail -n 5
+else
+    echo "  (no log yet at $LOG_FILE — check 'launchctl list | grep tmux-resurrect-save')"
+fi
 echo
-echo "manual recovery: tmux-resurrect-restore"
+echo "verify later with: tail $LOG_FILE   |   tmux-resurrect-restore --list"
+echo "manual recovery:   tmux-resurrect-restore"

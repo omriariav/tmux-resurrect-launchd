@@ -4,9 +4,10 @@ set -euo pipefail
 LABEL="com.user.tmux-resurrect-save"
 DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 DEST_BIN_DIR="$HOME/.local/bin"
-DEST_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"
+DEST_SAVE_BIN="$DEST_BIN_DIR/tmux-resurrect-save"
 DEST_PRECHECK="$DEST_BIN_DIR/tmux-resurrect-precheck"
 DEST_RESTORE="$DEST_BIN_DIR/tmux-resurrect-restore"
+LEGACY_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"  # pre-rename name
 
 # Unload by file if present, and by label regardless. This handles the case
 # where the plist was deleted manually but the job is still loaded.
@@ -21,7 +22,7 @@ if [ -f "$DEST_PLIST" ]; then
     rm -f "$DEST_PLIST"
 fi
 
-for f in "$DEST_TICK" "$DEST_PRECHECK" "$DEST_RESTORE"; do
+for f in "$DEST_SAVE_BIN" "$DEST_PRECHECK" "$DEST_RESTORE" "$LEGACY_TICK"; do
     if [ -f "$f" ]; then
         echo "removing $f"
         rm -f "$f"

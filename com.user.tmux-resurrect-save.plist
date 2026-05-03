@@ -7,7 +7,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>__BIN__/tmux-resurrect-tick</string>
+        <string>__BIN__/tmux-resurrect-save</string>
     </array>
 
     <key>StartInterval</key>

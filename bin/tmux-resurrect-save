@@ -1,6 +1,8 @@
 #!/bin/sh
-# Periodic tick driven by launchd. Saves tmux state via tmux-resurrect.
-# Installed by install.sh, which substitutes __TMUX_DIR__ and __HOME__.
+# Per-interval saver invoked by launchd (com.user.tmux-resurrect-save).
+# Wraps tmux-resurrect's save.sh with the regression guard and the
+# .restoring fence. Installed by install.sh, which substitutes
+# __TMUX_DIR__ and __HOME__.
 #
 # We invoke save.sh via `tmux run-shell` rather than running it directly.
 # Without an attached client, tmux's display-message mangles tab delimiters
@@ -16,8 +18,8 @@
 # good snapshot. This protects against the post-crash case where a fresh
 # tmux server with one default session would otherwise overwrite the
 # pre-crash recovery point. A user-visible sentinel file
-# `~/.tmux/resurrect/.allow_regression` disables the guard for one tick
-# (it is removed after consultation), in case you legitimately tore down
+# `~/.tmux/resurrect/.allow_regression` disables the guard once (it is
+# removed after consultation), in case you legitimately tore down
 # sessions and want the new state to stick.
 
 export PATH=__TMUX_DIR__:$PATH
@@ -25,11 +27,25 @@ RESURRECT_DIR="__HOME__/.tmux/resurrect"
 LAST="$RESURRECT_DIR/last"
 ALLOW="$RESURRECT_DIR/.allow_regression"
 RESTORING="$RESURRECT_DIR/.restoring"
+LAST_STATUS="$RESURRECT_DIR/.last_status"
 SAVE_SCRIPT="__HOME__/.tmux/plugins/tmux-resurrect/scripts/save.sh"
 log_ts="$(date '+%FT%T')"
 
-tmux ls >/dev/null 2>&1 || exit 0
-[ -x "$SAVE_SCRIPT" ] || { echo "tick: $log_ts skipped (save.sh missing at $SAVE_SCRIPT)"; exit 0; }
+# .last_status is a single tab-separated line: status<TAB>epoch<TAB>detail.
+# Read by the precheck nudge so the user is told about a silent save
+# failure instead of finding out at the next crash. .restoring-skip and
+# stale-fence paths intentionally do not write a status — the previous
+# save's status is still authoritative.
+write_status() {
+    printf '%s\t%s\t%s\n' "$1" "$(date +%s)" "$2" > "$LAST_STATUS" 2>/dev/null || true
+}
+
+tmux ls >/dev/null 2>&1 || { write_status idle "no tmux server running"; exit 0; }
+if [ ! -x "$SAVE_SCRIPT" ]; then
+    echo "save: $log_ts skipped (save.sh missing at $SAVE_SCRIPT)"
+    write_status failed "tmux-resurrect plugin missing at $SAVE_SCRIPT"
+    exit 0
+fi
 
 # Coordinate with restore.sh: an interactive restore takes a one-way fence
 # by creating $RESTORING. We bail rather than fight it. Treat the file as
@@ -37,10 +53,10 @@ tmux ls >/dev/null 2>&1 || exit 0
 if [ -e "$RESTORING" ]; then
     age_min=$(( ( $(date +%s) - $(stat -f '%m' "$RESTORING" 2>/dev/null || echo 0) ) / 60 ))
     if [ "$age_min" -lt 10 ]; then
-        echo "tick: $log_ts skipped (restore in progress, ${age_min}m)"
+        echo "save: $log_ts skipped (restore in progress, ${age_min}m)"
         exit 0
     fi
-    echo "tick: $log_ts WARN stale .restoring (${age_min}m old) — proceeding"
+    echo "save: $log_ts WARN stale .restoring (${age_min}m old) — proceeding"
     rm -f "$RESTORING"
 fi
 
@@ -72,7 +88,8 @@ new_panes=$(count_panes "$new_target")
 # tmux run-shell exits 0 even if save.sh failed; detect a no-op save by
 # checking the symlink target didn't advance.
 if [ -n "$prior_target" ] && [ "$prior_target" = "$new_target" ]; then
-    echo "tick: $log_ts WARN save did not advance last (target=$new_target) — save.sh likely failed"
+    echo "save: $log_ts WARN save did not advance last (target=$new_target) — save.sh likely failed"
+    write_status failed "save.sh did not advance last (target=$new_target)"
     exit 0
 fi
 
@@ -80,11 +97,14 @@ fi
 # A bypass sentinel lets you keep a legitimate teardown.
 if [ -f "$ALLOW" ]; then
     rm -f "$ALLOW"
-    echo "tick: $log_ts regression guard bypassed via .allow_regression (prior=$prior_panes new=$new_panes target=$new_target)"
+    echo "save: $log_ts regression guard bypassed via .allow_regression (prior=$prior_panes new=$new_panes target=$new_target)"
+    write_status bypassed "regression guard bypassed via .allow_regression"
 elif [ -n "$prior_target" ] && [ "$prior_target" != "$new_target" ] \
      && [ "$prior_panes" -ge 2 ] && [ "$new_panes" -le 1 ]; then
     ln -sf "$prior_target" "$LAST"
-    echo "tick: $log_ts regression detected (prior=$prior_panes panes, new=$new_panes) — last reverted to $prior_target; new snapshot $new_target kept on disk. Bypass once: touch $ALLOW"
+    echo "save: $log_ts regression detected (prior=$prior_panes panes, new=$new_panes) — last reverted to $prior_target; new snapshot $new_target kept on disk. Bypass once: touch $ALLOW"
+    write_status reverted "regression detected (prior=$prior_panes new=$new_panes); last reverted"
 else
-    echo "tick: $log_ts ok (prior=$prior_panes new=$new_panes target=$new_target)"
+    echo "save: $log_ts ok (prior=$prior_panes new=$new_panes target=$new_target)"
+    write_status ok "$new_target ($new_panes panes)"
 fi
