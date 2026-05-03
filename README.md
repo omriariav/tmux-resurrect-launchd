@@ -56,13 +56,26 @@ That opens an interactive picker listing snapshots newest-first, with timestamps
 Non-interactive forms:
 
 ```bash
-tmux-resurrect-restore --list                     # machine-readable rows
+tmux-resurrect-restore --list                     # machine-readable rows; safe inside tmux
 tmux-resurrect-restore --restore latest-good      # newest snapshot with >= 3 panes
 tmux-resurrect-restore --restore 20260503T143047  # explicit timestamp
 tmux-resurrect-restore --restore latest-good --no-confirm
 ```
 
-The picker handles the full sequence: stops the save daemon, kills the current tmux server (with confirmation), repoints `~/.tmux/resurrect/last`, starts a fresh detached server, runs `tmux-resurrect`'s `restore.sh` via `tmux run-shell` (necessary — without a client context, tmux's `display-message` mangles tab delimiters and the resurrect socket query returns empty), drops the bootstrap session, and re-arms the daemon. Reattach with iTerm2's `tmux -CC attach -t <session>`.
+`--list` is the only form that runs inside tmux — anything else would have to kill the server you're sitting in, so the script refuses early.
+
+The picker handles the full sequence: drops a `~/.tmux/resurrect/.restoring` fence so the next launchd tick can't race it, stops the save daemon, kills the current tmux server (with confirmation), repoints `~/.tmux/resurrect/last`, starts a fresh detached server, runs `tmux-resurrect`'s `restore.sh` via `tmux run-shell` (necessary — without a client context, tmux's `display-message` mangles tab delimiters and the resurrect socket query returns empty), drops the bootstrap session, re-arms the daemon, and removes the fence. Reattach with iTerm2's `tmux -CC attach -t <session>`.
+
+### If a restore aborts mid-flight
+
+The cleanup trap is phase-aware: the daemon is **only** re-armed when the restore completes successfully. A tick after a half-finished restore would otherwise save the bootstrap-only state as the new `last` and overwrite your snapshot — so on any abort, the daemon is intentionally left unloaded, the `.restoring` fence is removed, and the script prints recovery instructions specific to the phase reached:
+
+| Phase reached         | What you have                          | Next step                                                                 |
+|-----------------------|----------------------------------------|---------------------------------------------------------------------------|
+| `daemon_unloaded`     | server intact; daemon off              | `launchctl load -w ~/Library/LaunchAgents/com.user.tmux-resurrect-save.plist` |
+| `server_killed`       | no server; daemon off                  | `tmux new-session -d -s recovery && tmux-resurrect-restore` (retry)       |
+| `server_started`      | bootstrap session only; daemon off     | `tmux kill-server && tmux-resurrect-restore` (retry)                      |
+| `restore_completed`   | sessions restored; daemon off          | inspect with `tmux ls`; if good, manually re-arm the daemon               |
 
 ## Regression guard
 
@@ -104,7 +117,9 @@ The job runs once on load (`RunAtLoad`), so you should see a fresh snapshot with
 ./uninstall.sh
 ```
 
-Removes the launchd job and the plist. Existing snapshots in `~/.tmux/resurrect/` are left alone.
+Removes the launchd job, the plist, and the three binaries in `~/.local/bin/`. Strips the precheck managed block (`# >>> tmux-resurrect-launchd >>>` … `# <<< tmux-resurrect-launchd <<<`) from `~/.zshrc`, `~/.bashrc`, and `~/.bash_profile` if present — refuses to touch the rc if the start marker is there but the end marker has gone missing (would otherwise delete everything below it), and writes via `cat > "$rc"` rather than `mv` so a symlinked dotfile keeps its inode.
+
+Existing snapshots in `~/.tmux/resurrect/` and the log at `~/Library/Logs/tmux-resurrect-save.log` are left alone — `rm` them manually if you want.
 
 ## How it works
 
@@ -125,6 +140,7 @@ tmux run-shell "<home>/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet"
 - If no tmux server is running, the save is skipped (no empty snapshots).
 - `save.sh` is wrapped in `tmux run-shell` rather than executed directly. Without an attached client, tmux's `display-message` mangles tab delimiters in its format output — `save.sh` relies on those tabs and would otherwise write 12-byte snapshots containing only `state_main_` (underscores in place of tabs). `tmux run-shell` establishes a proper client context, the same one `tmux-continuum` gets implicitly from being invoked inside `status-right`. The same fix applies to the restore path: `tmux-resurrect-restore` invokes the plugin's `restore.sh` through `tmux run-shell` so `$TMUX` is populated and the resurrect socket query (`tmux_socket()` in the plugin) returns a non-empty value.
 - The regression guard runs after `save.sh` returns, comparing pane counts in the prior and new `last` targets. The new file is always kept; only the symlink is potentially reverted.
+- The tick yields to a manual restore via a `~/.tmux/resurrect/.restoring` fence file. While the fence exists, the tick logs `skipped (restore in progress)` and exits without saving. The fence is fail-open: a stale file older than 10 minutes (left behind by a `kill -9`'d restore, say) is removed and the tick proceeds.
 
 ## License
 
