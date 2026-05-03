@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Shell-rc-sourced nudge. Prints exactly one yellow line if the most
+# recent snapshot has sessions that aren't currently running. Designed
+# to be fast and silent on the common case (nothing to recover).
+#
+# Suppression:
+#   - $TMUX set                       — already inside tmux, wrong moment
+#   - $TMUX_RESURRECT_QUIET=1         — opt-out
+#   - mtime of ~/.cache/tmux-resurrect/dismissed within last 24h
+#
+# Suggested wiring (added by install.sh):
+#   [ -x "$HOME/.local/bin/tmux-resurrect-precheck" ] \
+#     && "$HOME/.local/bin/tmux-resurrect-precheck"
+#
+# Dismiss for the next 24h: `touch ~/.cache/tmux-resurrect/dismissed`
+
+[ -z "${TMUX:-}" ] || exit 0
+[ "${TMUX_RESURRECT_QUIET:-0}" != "1" ] || exit 0
+
+RESURRECT_DIR="$HOME/.tmux/resurrect"
+LAST="$RESURRECT_DIR/last"
+DISMISS_DIR="$HOME/.cache/tmux-resurrect"
+DISMISS="$DISMISS_DIR/dismissed"
+
+[ -L "$LAST" ] || exit 0
+target=$(readlink "$LAST")
+case "$target" in /*) snap="$target" ;; *) snap="$RESURRECT_DIR/$target" ;; esac
+[ -f "$snap" ] || exit 0
+
+# Dismissal: 24h cooldown.
+if [ -f "$DISMISS" ]; then
+    now=$(date +%s)
+    dt=$(stat -f '%m' "$DISMISS" 2>/dev/null || echo 0)
+    [ $((now - dt)) -lt 86400 ] && exit 0
+fi
+
+# Sessions in the saved snapshot.
+saved=$(awk -F'\t' '$1=="pane"{print $2}' "$snap" 2>/dev/null | sort -u)
+[ -n "$saved" ] || exit 0
+
+# Sessions currently running (empty if no server).
+live=$(tmux ls -F '#{session_name}' 2>/dev/null | sort -u || true)
+
+# Sessions saved but not currently running.
+missing=$(comm -23 <(printf '%s\n' "$saved") <(printf '%s\n' "$live"))
+[ -n "$missing" ] || exit 0
+
+missing_count=$(printf '%s\n' "$missing" | wc -l | tr -d ' ')
+saved_count=$(printf '%s\n' "$saved" | wc -l | tr -d ' ')
+
+# Snapshot age, human-friendly.
+snap_epoch=$(stat -f '%m' "$snap" 2>/dev/null || echo 0)
+now=$(date +%s)
+age_min=$(( (now - snap_epoch) / 60 ))
+if [ "$age_min" -lt 60 ]; then age="${age_min}m"
+elif [ "$age_min" -lt 1440 ]; then age="$((age_min / 60))h"
+else age="$((age_min / 1440))d"
+fi
+
+# One yellow line. (ANSI 33 = yellow, 0 = reset.) The dismiss command
+# includes mkdir -p because $DISMISS_DIR may not exist on a fresh install.
+printf '\033[33mtmux-resurrect: %s of %s saved sessions not running (snapshot %s old). Run: tmux-resurrect-restore   (silence: TMUX_RESURRECT_QUIET=1; dismiss 24h: mkdir -p %s && touch %s)\033[0m\n' \
+    "$missing_count" "$saved_count" "$age" "$DISMISS_DIR" "$DISMISS"

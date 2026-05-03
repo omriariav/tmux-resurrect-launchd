@@ -9,7 +9,82 @@
 # tabs). Wrapping the call in `run-shell` establishes a proper client
 # context so format output is faithful. This is the same context that
 # tmux-continuum gets implicitly via status-right `#()` invocation.
+#
+# After saving, we apply a regression guard: if the new snapshot has
+# dramatically fewer panes than the prior `last`, we leave the new
+# timestamped file on disk for forensics but revert `last` to the prior
+# good snapshot. This protects against the post-crash case where a fresh
+# tmux server with one default session would otherwise overwrite the
+# pre-crash recovery point. A user-visible sentinel file
+# `~/.tmux/resurrect/.allow_regression` disables the guard for one tick
+# (it is removed after consultation), in case you legitimately tore down
+# sessions and want the new state to stick.
 
 export PATH=__TMUX_DIR__:$PATH
+RESURRECT_DIR="__HOME__/.tmux/resurrect"
+LAST="$RESURRECT_DIR/last"
+ALLOW="$RESURRECT_DIR/.allow_regression"
+RESTORING="$RESURRECT_DIR/.restoring"
+SAVE_SCRIPT="__HOME__/.tmux/plugins/tmux-resurrect/scripts/save.sh"
+log_ts="$(date '+%FT%T')"
+
 tmux ls >/dev/null 2>&1 || exit 0
-exec tmux run-shell "__HOME__/.tmux/plugins/tmux-resurrect/scripts/save.sh quiet"
+[ -x "$SAVE_SCRIPT" ] || { echo "tick: $log_ts skipped (save.sh missing at $SAVE_SCRIPT)"; exit 0; }
+
+# Coordinate with restore.sh: an interactive restore takes a one-way fence
+# by creating $RESTORING. We bail rather than fight it. Treat the file as
+# stale after 10 minutes (fail-open).
+if [ -e "$RESTORING" ]; then
+    age_min=$(( ( $(date +%s) - $(stat -f '%m' "$RESTORING" 2>/dev/null || echo 0) ) / 60 ))
+    if [ "$age_min" -lt 10 ]; then
+        echo "tick: $log_ts skipped (restore in progress, ${age_min}m)"
+        exit 0
+    fi
+    echo "tick: $log_ts WARN stale .restoring (${age_min}m old) — proceeding"
+    rm -f "$RESTORING"
+fi
+
+count_panes() {
+    # $1: snapshot path (relative to RESURRECT_DIR or absolute)
+    f="$1"
+    case "$f" in
+        /*) ;;
+        *) f="$RESURRECT_DIR/$f" ;;
+    esac
+    [ -f "$f" ] || { echo 0; return; }
+    awk -F'\t' '$1=="pane"' "$f" 2>/dev/null | wc -l | tr -d ' '
+}
+
+prior_target=""
+if [ -L "$LAST" ]; then
+    prior_target=$(readlink "$LAST")
+fi
+prior_panes=$(count_panes "$prior_target")
+
+tmux run-shell "$SAVE_SCRIPT quiet"
+
+new_target=""
+if [ -L "$LAST" ]; then
+    new_target=$(readlink "$LAST")
+fi
+new_panes=$(count_panes "$new_target")
+
+# tmux run-shell exits 0 even if save.sh failed; detect a no-op save by
+# checking the symlink target didn't advance.
+if [ -n "$prior_target" ] && [ "$prior_target" = "$new_target" ]; then
+    echo "tick: $log_ts WARN save did not advance last (target=$new_target) — save.sh likely failed"
+    exit 0
+fi
+
+# Regression: prior had a meaningful state (>=2 panes), new is degenerate (<=1).
+# A bypass sentinel lets you keep a legitimate teardown.
+if [ -f "$ALLOW" ]; then
+    rm -f "$ALLOW"
+    echo "tick: $log_ts regression guard bypassed via .allow_regression (prior=$prior_panes new=$new_panes target=$new_target)"
+elif [ -n "$prior_target" ] && [ "$prior_target" != "$new_target" ] \
+     && [ "$prior_panes" -ge 2 ] && [ "$new_panes" -le 1 ]; then
+    ln -sf "$prior_target" "$LAST"
+    echo "tick: $log_ts regression detected (prior=$prior_panes panes, new=$new_panes) — last reverted to $prior_target; new snapshot $new_target kept on disk. Bypass once: touch $ALLOW"
+else
+    echo "tick: $log_ts ok (prior=$prior_panes new=$new_panes target=$new_target)"
+fi
