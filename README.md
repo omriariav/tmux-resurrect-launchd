@@ -66,7 +66,7 @@ The picker handles the full sequence: stops the save daemon, kills the current t
 
 ## Regression guard
 
-The tick script protects `~/.tmux/resurrect/last` against silent overwrites. After each save, it compares the new snapshot's pane count to the prior `last`. If a meaningful prior state (≥ 3 panes) was replaced by a degenerate one (≤ 1 pane), the new timestamped file is kept on disk for forensics but `last` is reverted. This is the post-Mac-reboot case: a fresh tmux server starts saving its empty default session over your real recovery point. The guard preserves the recovery point until you run `tmux-resurrect-restore`.
+The tick script protects `~/.tmux/resurrect/last` against silent overwrites. After each save, it compares the new snapshot's pane count to the prior `last`. If a meaningful prior state (≥ 2 panes) was replaced by a degenerate one (≤ 1 pane), the new timestamped file is kept on disk for forensics but `last` is reverted. This is the post-Mac-reboot case: a fresh tmux server starts saving its empty default session over your real recovery point. The guard preserves the recovery point until you run `tmux-resurrect-restore`.
 
 If you legitimately tear down sessions to one pane and want the new state to stick:
 

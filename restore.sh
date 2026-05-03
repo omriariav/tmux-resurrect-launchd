@@ -197,10 +197,6 @@ execute_restore() {
     target_base="$1"  # filename basename
     no_confirm="$2"
 
-    if [ -n "${TMUX:-}" ]; then
-        die "cannot restore from inside tmux. Open a fresh shell (no tmux integration) and re-run."
-    fi
-
     target_path="$RESURRECT_DIR/$target_base"
     [ -f "$target_path" ] || die "snapshot not found: $target_path"
 
@@ -227,24 +223,53 @@ execute_restore() {
         esac
     fi
 
-    # State for the cleanup trap.
+    # Phase-aware cleanup. Each phase records the furthest forward we got;
+    # the trap uses that to decide what to tell the user and whether to
+    # re-arm the save daemon. We deliberately do NOT re-arm the daemon
+    # mid-restore — a tick after a partial restore would happily save the
+    # broken half-state as the new `last`.
     daemon_was_loaded=0
     if launchctl list 2>/dev/null | grep -q com.user.tmux-resurrect-save; then
         daemon_was_loaded=1
     fi
+    phase=initial   # initial | daemon_unloaded | server_killed | server_started | restore_completed | done
 
     cleanup() {
         rc=$?
-        # Always remove the fence and try to re-arm the daemon, even on error.
         rm -f "$RESURRECT_DIR/.restoring" 2>/dev/null || true
-        if [ "$daemon_was_loaded" -eq 1 ]; then
-            launchctl list 2>/dev/null | grep -q com.user.tmux-resurrect-save \
-                || launchctl load -w "$LAUNCHAGENT" 2>/dev/null || true
-        fi
-        if [ "$rc" -ne 0 ]; then
-            err "restore aborted (exit $rc). Inspect tmux state with: tmux ls"
-            err "if you're left without a server, start one with: tmux new-session -d -s recovery"
-        fi
+        case "$phase" in
+            done)
+                # Success path already re-armed the daemon and printed the summary.
+                return
+                ;;
+            initial)
+                # No side effects yet; trap fired before we did anything.
+                ;;
+            daemon_unloaded)
+                err "aborted (exit $rc) before killing the tmux server."
+                err "  - the save daemon was unloaded; re-arm it with:"
+                err "      launchctl load -w $LAUNCHAGENT"
+                ;;
+            server_killed)
+                err "aborted (exit $rc) after killing the tmux server, before starting a new one."
+                err "  - you have NO tmux server. Start one with:"
+                err "      tmux new-session -d -s recovery"
+                err "  - the save daemon is unloaded; leave it that way until you decide."
+                err "  - to retry the restore: tmux-resurrect-restore"
+                ;;
+            server_started)
+                err "aborted (exit $rc) after starting the bootstrap server, before tmux-resurrect ran."
+                err "  - bootstrap session: $bootstrap"
+                err "  - the save daemon is intentionally NOT re-armed (would save the bootstrap as 'last')."
+                err "  - to retry: tmux kill-server && tmux-resurrect-restore"
+                ;;
+            restore_completed)
+                err "aborted (exit $rc) after tmux-resurrect ran, before final cleanup."
+                err "  - inspect with: tmux ls"
+                err "  - if state looks correct, re-arm the daemon:"
+                err "      launchctl load -w $LAUNCHAGENT"
+                ;;
+        esac
     }
     trap cleanup EXIT
 
@@ -254,6 +279,7 @@ execute_restore() {
     if [ "$daemon_was_loaded" -eq 1 ]; then
         launchctl unload "$LAUNCHAGENT" 2>/dev/null || true
     fi
+    phase=daemon_unloaded
 
     echo "==> Killing current tmux server"
     tmux kill-server 2>/dev/null || true
@@ -261,15 +287,20 @@ execute_restore() {
     sock_dir=$(find /private/tmp -maxdepth 1 -type d -name "tmux-$(id -u)" 2>/dev/null || true)
     [ -n "$sock_dir" ] && rm -f "$sock_dir/default" 2>/dev/null || true
     sleep 1
+    phase=server_killed
 
     echo "==> Pointing 'last' at $target_base"
     ln -sf "$target_base" "$RESURRECT_DIR/last"
 
     echo "==> Starting detached server"
-    tmux new-session -d -s "$bootstrap"
+    if ! tmux new-session -d -s "$bootstrap"; then
+        die "could not start a tmux server (see 'tmux new-session' error above)."
+    fi
+    phase=server_started
 
     echo "==> Running tmux-resurrect restore (via run-shell)"
     tmux run-shell "$RESTORE_SCRIPT"
+    phase=restore_completed
 
     echo "==> Cleaning up bootstrap session ($bootstrap)"
     tmux kill-session -t "$bootstrap" 2>/dev/null || true
@@ -288,8 +319,9 @@ execute_restore() {
     echo "Attach via iTerm2 -CC integration with:"
     echo "    tmux -CC attach -t $primary"
 
-    trap - EXIT
+    phase=done
     rm -f "$RESURRECT_DIR/.restoring" 2>/dev/null || true
+    trap - EXIT
 }
 
 # --- main ------------------------------------------------------------------
@@ -312,6 +344,13 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# Anything that mutates state requires running outside tmux. --list is
+# read-only and works fine inside tmux. The interactive picker also
+# tolerates tmux for browsing, but bails before kill-server.
+if [ "$mode" != "list" ] && [ -n "${TMUX:-}" ]; then
+    die "cannot run from inside tmux (would kill the server you're in). Open a fresh shell and re-run."
+fi
 
 # Cache rows once.
 rows=$(snapshot_files | build_rows)
