@@ -149,7 +149,7 @@ echo "installed. RunAtLoad fired the first save — last log lines:"
 # the user sees real proof of life before leaving the install.
 sleep 1
 if [ -f "$LOG_FILE" ]; then
-    sed 's/^/  /' "$LOG_FILE" | tail -n 5
+    tail -n 5 "$LOG_FILE" | sed 's/^/  /'
 else
     echo "  (no log yet at $LOG_FILE — check 'launchctl list | grep tmux-resurrect-save')"
 fi

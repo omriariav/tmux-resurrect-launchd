@@ -323,6 +323,13 @@ execute_restore() {
 
     phase=done
     rm -f "$RESURRECT_DIR/.restoring" 2>/dev/null || true
+
+    # Refresh .last_status so any lingering "save FAILED" red nudge from
+    # tmux-resurrect-precheck clears on the next shell, instead of waiting
+    # up to one save interval (15min) for the next ok tick to overwrite it.
+    printf 'ok\t%s\trestored from %s\n' "$(date +%s)" "$target_base" \
+        > "$RESURRECT_DIR/.last_status" 2>/dev/null || true
+
     trap - EXIT
 }
 

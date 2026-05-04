@@ -56,7 +56,7 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 ### What the restore does
 
-Drops a `~/.tmux/resurrect/.restoring` fence so the next save tick can't race it, stops the launchd job, kills the current tmux server (with confirmation), repoints `~/.tmux/resurrect/last`, starts a fresh detached server, runs `tmux-resurrect`'s `restore.sh` through `tmux run-shell`, drops the bootstrap session, re-arms the launchd job, and removes the fence. Reattach with iTerm2's `tmux -CC attach -t <session>`.
+Drops a `~/.tmux/resurrect/.restoring` fence so the launchd-driven save can't race it, stops the launchd job, kills the current tmux server (with confirmation), repoints `~/.tmux/resurrect/last`, starts a fresh detached server, runs `tmux-resurrect`'s `restore.sh` through `tmux run-shell`, drops the bootstrap session, re-arms the launchd job, and removes the fence. Reattach with iTerm2's `tmux -CC attach -t <session>`.
 
 ### If a restore aborts mid-flight
 
@@ -137,9 +137,9 @@ Related upstream issues:
 
 The save/restore coordination uses three sentinel files under `~/.tmux/resurrect/`:
 
-- `.restoring` — created by `tmux-resurrect-restore`, removed when it finishes. While present, the save tick skips. Auto-cleared after 10 minutes (fail-open).
+- `.restoring` — created by `tmux-resurrect-restore`, removed when it finishes. While present, `tmux-resurrect-save` skips. Auto-cleared after 10 minutes (fail-open).
 - `.allow_regression` — manually created to bypass the regression guard once. Removed after consultation.
-- `.last_status` — written by every save tick (`status<TAB>epoch<TAB>detail`). Read by `tmux-resurrect-precheck` to surface silent failures.
+- `.last_status` — written by every `tmux-resurrect-save` run (`status<TAB>epoch<TAB>detail`). Read by `tmux-resurrect-precheck` to surface silent failures.
 
 ## License
 
