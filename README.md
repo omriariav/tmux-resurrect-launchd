@@ -16,6 +16,14 @@ The installer drops three binaries into `~/.local/bin/` (`tmux-resurrect-save`, 
 
 > **If you already use `tmux-continuum`**, silence its autosave to avoid racing this daemon over the same snapshot. Set `set -g @continuum-save-interval '0'` in `~/.tmux.conf`. Continuum's other behaviors (auto-restore on start) are unaffected.
 
+### Verify
+
+```bash
+launchctl list | grep tmux-resurrect-save     # should print the label
+tail ~/Library/Logs/tmux-resurrect-save.log   # most recent saves and their status
+tmux-resurrect-restore --list | head          # snapshot inventory
+```
+
 ## Recovery
 
 After a crash or reboot, from a fresh non-tmux shell:
@@ -58,6 +66,8 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 Drops a `~/.tmux/resurrect/.restoring` fence so the launchd-driven save can't race it, stops the launchd job, kills the current tmux server (with confirmation), repoints `~/.tmux/resurrect/last`, starts a fresh detached server, runs `tmux-resurrect`'s `restore.sh` through `tmux run-shell`, drops the bootstrap session, re-arms the launchd job, and removes the fence. Reattach with iTerm2's `tmux -CC attach -t <session>`.
 
+> **Pane text history caveat.** `tmux-resurrect` stores pane scrollback in a single shared `pane_contents.tar.gz` that the daemon overwrites on every save. The picker lets you choose any snapshot's session/window/pane *layout*, but the recovered pane scrollback is whatever the most recent save captured — not what existed at the picked timestamp. For a fresh post-crash recovery this is what you want; for "rewind 3 hours" it's worth knowing.
+
 ### If a restore aborts mid-flight
 
 The cleanup trap is phase-aware. The launchd job is **only** re-armed when the restore completes successfully — a tick after a half-finished restore would otherwise save the bootstrap state as the new `last` and overwrite your snapshot. On any abort, the job is intentionally left unloaded, the fence is removed, and the script prints recovery instructions specific to where it got to:
@@ -98,14 +108,6 @@ If you legitimately tear down sessions to one pane and want the new state to sti
 
 ```bash
 touch ~/.tmux/resurrect/.allow_regression   # one-time bypass; sentinel auto-removed
-```
-
-## Verify
-
-```bash
-launchctl list | grep tmux-resurrect-save     # should print the label
-tail ~/Library/Logs/tmux-resurrect-save.log   # most recent saves and their status
-tmux-resurrect-restore --list | head          # snapshot inventory
 ```
 
 ## Uninstall
