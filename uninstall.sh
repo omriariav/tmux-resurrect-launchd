@@ -7,6 +7,7 @@ DEST_BIN_DIR="$HOME/.local/bin"
 DEST_SAVE_BIN="$DEST_BIN_DIR/tmux-resurrect-save"
 DEST_PRECHECK="$DEST_BIN_DIR/tmux-resurrect-precheck"
 DEST_RESTORE="$DEST_BIN_DIR/tmux-resurrect-restore"
+DEST_SESSION="$DEST_BIN_DIR/tmux-session"
 LEGACY_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"  # pre-rename name
 
 # Unload by file if present, and by label regardless. This handles the case
@@ -22,7 +23,7 @@ if [ -f "$DEST_PLIST" ]; then
     rm -f "$DEST_PLIST"
 fi
 
-for f in "$DEST_SAVE_BIN" "$DEST_PRECHECK" "$DEST_RESTORE" "$LEGACY_TICK"; do
+for f in "$DEST_SAVE_BIN" "$DEST_PRECHECK" "$DEST_RESTORE" "$DEST_SESSION" "$LEGACY_TICK"; do
     if [ -f "$f" ]; then
         echo "removing $f"
         rm -f "$f"

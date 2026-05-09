@@ -12,7 +12,7 @@ cd tmux-resurrect-launchd
 ./install.sh
 ```
 
-The installer drops three binaries into `~/.local/bin/` (`tmux-resurrect-save`, `tmux-resurrect-restore`, `tmux-resurrect-precheck`), registers `com.user.tmux-resurrect-save` with launchd (default interval **15 minutes** — edit `StartInterval` in the plist and re-run to change), and prompts to wire the [shell-rc nudge](#shell-rc-nudge). Logs to `~/Library/Logs/tmux-resurrect-save.log`. The first save fires at install time so you can see proof of life.
+The installer drops four binaries into `~/.local/bin/` (`tmux-resurrect-save`, `tmux-resurrect-restore`, `tmux-resurrect-precheck`, `tmux-session`), registers `com.user.tmux-resurrect-save` with launchd (default interval **15 minutes**; edit `StartInterval` in the plist and re-run to change), and prompts to wire the [shell-rc nudge](#shell-rc-nudge). Logs to `~/Library/Logs/tmux-resurrect-save.log`. The first save fires at install time so you can see proof of life.
 
 > **If you already use `tmux-continuum`**, silence its autosave to avoid racing this daemon over the same snapshot. Set `set -g @continuum-save-interval '0'` in `~/.tmux.conf`. Continuum's other behaviors (auto-restore on start) are unaffected.
 
@@ -61,6 +61,32 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 ```
 
 `--list` is the only mode that runs inside tmux — anything else would have to kill the server you're sitting in, so the script refuses early.
+
+## iTerm2 session launcher
+
+`tmux-session` is an iTerm2-first launcher for the default `main` tmux session. In iTerm2 control mode, `main` is the iTerm2 window, tmux windows are iTerm2 tabs, and tmux panes are panes inside each tab. The tab table is status only; the primary action is resuming `main`.
+
+```bash
+tmux-session
+tmux-session --resume
+tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
+tmux-session --switch-tab taboola-pm-os
+tmux-session --detach
+tmux-session --list
+```
+
+Outside tmux, resume/create/switch use `tmux -CC` so iTerm2 owns the native tab/window UI. In iTerm2 this can show the native tmux integration controls; that is expected and is not a second daemon. Inside tmux, resume switches the client to `main`.
+
+## Palette preview
+
+`palette_preview.sh` previews iTerm2 and tmux colors live before you persist them. The approved default is `slick-green`.
+
+```bash
+./palette_preview.sh slick-green
+./palette_preview.sh slick-green-other-font
+```
+
+The alternate font preview creates a temporary dynamic profile for comparison and removes it again when `slick-green` is applied.
 
 ### What the restore does
 
@@ -116,7 +142,7 @@ touch ~/.tmux/resurrect/.allow_regression   # one-time bypass; sentinel auto-rem
 ./uninstall.sh
 ```
 
-Removes the launchd job, the plist, the three binaries, and the precheck managed block from `~/.zshrc` / `~/.bashrc` / `~/.bash_profile`. Refuses to edit an rc that has a start marker but no end marker (would otherwise nuke everything below the start), and writes via `cat > "$rc"` rather than `mv` so a symlinked dotfile keeps its inode. Snapshots in `~/.tmux/resurrect/` and the log are left alone — `rm` manually if you want.
+Removes the launchd job, the plist, the installed binaries, and the precheck managed block from `~/.zshrc` / `~/.bashrc` / `~/.bash_profile`. Refuses to edit an rc that has a start marker but no end marker (would otherwise nuke everything below the start), and writes via `cat > "$rc"` rather than `mv` so a symlinked dotfile keeps its inode. Snapshots in `~/.tmux/resurrect/` and the log are left alone; `rm` manually if you want.
 
 ## Background
 

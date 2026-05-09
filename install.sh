@@ -7,12 +7,14 @@ SRC_PLIST="$REPO_DIR/${LABEL}.plist"
 SRC_SAVE_BIN="$REPO_DIR/bin/tmux-resurrect-save"
 SRC_PRECHECK="$REPO_DIR/bin/tmux-resurrect-precheck"
 SRC_RESTORE="$REPO_DIR/restore.sh"
+SRC_SESSION="$REPO_DIR/session_iterm2.sh"
 DEST_PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 DEST_BIN_DIR="$HOME/.local/bin"
 DEST_SAVE_BIN="$DEST_BIN_DIR/tmux-resurrect-save"
 LEGACY_TICK="$DEST_BIN_DIR/tmux-resurrect-tick"
 DEST_PRECHECK="$DEST_BIN_DIR/tmux-resurrect-precheck"
 DEST_RESTORE="$DEST_BIN_DIR/tmux-resurrect-restore"
+DEST_SESSION="$DEST_BIN_DIR/tmux-session"
 LOG_FILE="$HOME/Library/Logs/tmux-resurrect-save.log"
 RESURRECT_SAVE="$HOME/.tmux/plugins/tmux-resurrect/scripts/save.sh"
 
@@ -71,6 +73,9 @@ install -m 755 "$SRC_PRECHECK" "$DEST_PRECHECK"
 
 echo "installing $DEST_RESTORE"
 install -m 755 "$SRC_RESTORE" "$DEST_RESTORE"
+
+echo "installing $DEST_SESSION"
+install -m 755 "$SRC_SESSION" "$DEST_SESSION"
 
 echo "installing $DEST_PLIST (tmux=$TMUX_BIN)"
 sed -e "s|__BIN__|$DEST_BIN_DIR|g" -e "s|__HOME__|$HOME|g" "$SRC_PLIST" > "$DEST_PLIST"
@@ -156,3 +161,4 @@ fi
 echo
 echo "verify later with: tail $LOG_FILE   |   tmux-resurrect-restore --list"
 echo "manual recovery:   tmux-resurrect-restore"
+echo "session launcher:  tmux-session"
