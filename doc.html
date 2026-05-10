@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tmux-resurrect-launchd Walkthrough</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #000000;
+      --panel: #03110c;
+      --panel-2: #061b13;
+      --border: #367a58;
+      --border-soft: #17442f;
+      --text: #c8ffd8;
+      --text-strong: #f3fff7;
+      --muted: #89b69b;
+      --accent: #00ff88;
+      --green: #8cff70;
+      --cyan: #58ffc7;
+      --yellow: #f6d365;
+      --red: #ff4d5e;
+      --blue: #6db6ff;
+      --shadow: rgba(0, 255, 136, 0.08);
+      --mono: "FiraCode Nerd Font Mono", "FiraCodeNFM", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(0, 255, 136, 0.055), transparent 360px),
+        var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.6;
+    }
+
+    a {
+      color: var(--cyan);
+      text-decoration: none;
+    }
+
+    a:hover,
+    a:focus {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 0.2em;
+    }
+
+    code,
+    pre,
+    kbd {
+      font-family: var(--mono);
+      font-size: 0.95em;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+      gap: 32px;
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 32px 0 64px;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      border: 1px solid var(--border-soft);
+      background: rgba(3, 17, 12, 0.86);
+      box-shadow: 0 20px 60px var(--shadow);
+      padding: 18px;
+    }
+
+    .brand {
+      margin: 0 0 14px;
+      color: var(--text-strong);
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .nav {
+      display: grid;
+      gap: 2px;
+    }
+
+    .nav a {
+      display: block;
+      border-left: 2px solid transparent;
+      padding: 8px 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav a:hover,
+    .nav a:focus {
+      border-color: var(--accent);
+      color: var(--text-strong);
+      text-decoration: none;
+      background: rgba(0, 255, 136, 0.06);
+    }
+
+    main {
+      min-width: 0;
+    }
+
+    .hero {
+      padding: 24px 0 28px;
+      border-bottom: 1px solid var(--border-soft);
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 900px;
+      color: var(--text-strong);
+      font-size: 42px;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .intro {
+      max-width: 820px;
+      margin: 18px 0 0;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    section {
+      padding: 26px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      color: var(--text-strong);
+      font-size: 25px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      color: var(--green);
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    p {
+      max-width: 860px;
+      margin: 0 0 14px;
+    }
+
+    ul,
+    ol {
+      max-width: 860px;
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 7px 0;
+    }
+
+    .callout {
+      max-width: 900px;
+      border: 1px solid var(--border);
+      background: rgba(6, 27, 19, 0.72);
+      box-shadow: inset 0 0 0 1px rgba(200, 255, 216, 0.03);
+      padding: 16px 18px;
+      margin: 16px 0;
+    }
+
+    .callout strong {
+      color: var(--text-strong);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      max-width: 980px;
+      margin: 18px 0;
+    }
+
+    .tile {
+      border: 1px solid var(--border-soft);
+      background: rgba(3, 17, 12, 0.74);
+      padding: 16px;
+      min-height: 132px;
+    }
+
+    .tile h3 {
+      margin-top: 0;
+    }
+
+    .tile p {
+      margin-bottom: 0;
+      color: var(--muted);
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+      max-width: 980px;
+      counter-reset: step;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      border: 1px solid var(--border-soft);
+      background: rgba(3, 17, 12, 0.72);
+      padding: 16px;
+    }
+
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--accent);
+      color: var(--bg);
+      background: var(--accent);
+      font-family: var(--mono);
+      font-weight: 700;
+    }
+
+    .step h3 {
+      margin-top: 0;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .terminal {
+      max-width: 980px;
+      border: 1px solid var(--border);
+      background: #000;
+      box-shadow: 0 24px 80px var(--shadow);
+      margin: 14px 0 18px;
+      overflow: hidden;
+    }
+
+    .terminal-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 34px;
+      border-bottom: 1px solid var(--border-soft);
+      padding: 0 12px;
+      background: #03110c;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 14px 0 0 var(--yellow), 28px 0 0 var(--red);
+      margin-right: 30px;
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      overflow-x: auto;
+      color: var(--text);
+      background: transparent;
+      line-height: 1.5;
+      tab-size: 2;
+    }
+
+    .prompt {
+      color: var(--accent);
+    }
+
+    .comment {
+      color: var(--muted);
+    }
+
+    table {
+      width: min(980px, 100%);
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 15px;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--border-soft);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--text-strong);
+      background: rgba(0, 255, 136, 0.08);
+      font-weight: 700;
+    }
+
+    td code {
+      color: var(--cyan);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      border: 1px solid var(--border-soft);
+      padding: 2px 9px;
+      color: var(--green);
+      background: rgba(140, 255, 112, 0.08);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    .footer {
+      padding: 24px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 860px) {
+      .layout {
+        grid-template-columns: 1fr;
+        width: min(100% - 28px, 720px);
+        gap: 14px;
+        padding-top: 16px;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .nav {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      h1 {
+        font-size: 34px;
+      }
+
+      .intro {
+        font-size: 16px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .nav {
+        grid-template-columns: 1fr;
+      }
+
+      .step {
+        grid-template-columns: 1fr;
+      }
+
+      h1 {
+        font-size: 30px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar" aria-label="Walkthrough navigation">
+      <p class="brand">tmux-resurrect-launchd</p>
+      <nav class="nav">
+        <a href="#mental-model">Mental Model</a>
+        <a href="#install">Install</a>
+        <a href="#daily-flow">Daily Flow</a>
+        <a href="#backup-loop">Backup Loop</a>
+        <a href="#restore">Restore</a>
+        <a href="#palette">iTerm2 Palette</a>
+        <a href="#commands">Commands</a>
+        <a href="#troubleshooting">Troubleshooting</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <p class="eyebrow">Walkthrough</p>
+        <h1>Control tmux sessions easily in iTerm2, with crash-safe restore.</h1>
+        <p class="intro">
+          This project installs a launchd save loop for tmux-resurrect, adds a restore picker,
+          and gives you a simple iTerm2-first <code>tmux-session</code> launcher.
+        </p>
+      </header>
+
+      <section id="mental-model">
+        <h2>Mental Model</h2>
+        <p>
+          The setup is tuned for iTerm2 control mode. Think of the pieces like this:
+        </p>
+        <div class="grid">
+          <div class="tile">
+            <h3>Session</h3>
+            <p>A tmux session is the thing you resume. In iTerm2 control mode, it behaves like the main iTerm2 window.</p>
+          </div>
+          <div class="tile">
+            <h3>Tab</h3>
+            <p>A tmux window is shown as an iTerm2 tab. The launcher calls these tabs because that is how you work with them.</p>
+          </div>
+          <div class="tile">
+            <h3>Pane</h3>
+            <p>A tmux pane is a split inside a tab. This is where shells, editors, Codex, and long-running commands live.</p>
+          </div>
+          <div class="tile">
+            <h3>Daemon</h3>
+            <p>There is one launchd job. It saves tmux snapshots every 15 minutes. The iTerm2 tmux UI is not a second daemon.</p>
+          </div>
+        </div>
+        <div class="callout">
+          <strong>Default session:</strong> the launcher uses <code>main</code> unless you pass <code>--session &lt;name&gt;</code>
+          or set <code>TMUX_SESSION_NAME</code>.
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+        <p>
+          Run this once from the repo. It installs the save, restore, precheck, and session launcher commands into
+          <code>~/.local/bin</code>, then registers the launchd job.
+        </p>
+        <div class="terminal" role="group" aria-label="Install commands">
+          <div class="terminal-head"><span class="dot"></span>install</div>
+          <pre><span class="prompt">$</span> git clone https://github.com/omriariav/tmux-resurrect-launchd.git
+<span class="prompt">$</span> cd tmux-resurrect-launchd
+<span class="prompt">$</span> ./install.sh</pre>
+        </div>
+        <p>Verify the install:</p>
+        <div class="terminal" role="group" aria-label="Verify commands">
+          <div class="terminal-head"><span class="dot"></span>verify</div>
+          <pre><span class="prompt">$</span> launchctl list | grep tmux-resurrect-save
+<span class="prompt">$</span> tail ~/Library/Logs/tmux-resurrect-save.log
+<span class="prompt">$</span> tmux-resurrect-restore --list | head
+<span class="prompt">$</span> tmux-session --list</pre>
+        </div>
+      </section>
+
+      <section id="daily-flow">
+        <h2>Daily Flow</h2>
+        <div class="steps">
+          <article class="step">
+            <div>
+              <h3>Resume your main tmux session</h3>
+              <p>Run this from any regular shell, usually inside iTerm2.</p>
+              <div class="terminal" role="group" aria-label="Resume main session">
+                <div class="terminal-head"><span class="dot"></span>resume</div>
+                <pre><span class="prompt">$</span> tmux-session --resume</pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>Use the interactive picker</h3>
+              <p>
+                The picker shows tabs as context only. Press Enter or <code>r</code> to resume the session.
+                Use <code>c</code> to create a new tab inside that session.
+              </p>
+              <div class="terminal" role="group" aria-label="Interactive tmux-session picker">
+                <div class="terminal-head"><span class="dot"></span>picker</div>
+                <pre><span class="prompt">$</span> tmux-session
+
+tmux session: main
+tab  name                           panes   active  path
+---- ------------------------------ -----   ------  ----
+0    taboola-pm-os                  3       yes     /Users/omri.a/Code/taboola-pm-os
+1    handoff                        2       no      /Users/omri.a/Code/handoff
+
+Enter/r) resume main session
+c) create tab in main
+d) detach iTerm2 clients
+l) list tabs
+q) quit</pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>Create a tab for a project</h3>
+              <p>
+                This creates the session if needed. If the tab already exists, it switches to it.
+              </p>
+              <div class="terminal" role="group" aria-label="Create tab">
+                <div class="terminal-head"><span class="dot"></span>create tab</div>
+                <pre><span class="prompt">$</span> tmux-session --create taboola-pm-os ~/Code/taboola-pm-os</pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>Work with another session</h3>
+              <p>
+                Use this when you want a separate tmux session in another iTerm2 window or tab.
+              </p>
+              <div class="terminal" role="group" aria-label="Named session">
+                <div class="terminal-head"><span class="dot"></span>named session</div>
+                <pre><span class="prompt">$</span> tmux-session --session work --resume
+<span class="prompt">$</span> tmux-session --session work --create api ~/Code/api
+<span class="prompt">$</span> TMUX_SESSION_NAME=work tmux-session --resume</pre>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="backup-loop">
+        <h2>Backup Loop</h2>
+        <p>
+          The launchd job runs <code>tmux-resurrect-save</code> every 15 minutes and at install time.
+          It does not depend on tmux's status bar, which is the part that can fail under iTerm2 control mode.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Piece</th>
+              <th>What it does</th>
+              <th>Where to look</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="status">launchd</span></td>
+              <td>Runs the periodic save job.</td>
+              <td><code>~/Library/LaunchAgents/com.user.tmux-resurrect-save.plist</code></td>
+            </tr>
+            <tr>
+              <td><span class="status">save</span></td>
+              <td>Calls tmux-resurrect through <code>tmux run-shell</code>.</td>
+              <td><code>~/.local/bin/tmux-resurrect-save</code></td>
+            </tr>
+            <tr>
+              <td><span class="status">snapshots</span></td>
+              <td>Stores timestamped tmux-resurrect files.</td>
+              <td><code>~/.tmux/resurrect/</code></td>
+            </tr>
+            <tr>
+              <td><span class="status">logs</span></td>
+              <td>Shows save success, skips, and guard decisions.</td>
+              <td><code>~/Library/Logs/tmux-resurrect-save.log</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="callout">
+          <strong>Regression guard:</strong> if a real multi-pane session is replaced by an empty one-pane post-reboot state,
+          the save script keeps the old <code>last</code> pointer so recovery stays useful.
+        </div>
+      </section>
+
+      <section id="restore">
+        <h2>Restore After Crash Or Reboot</h2>
+        <p>
+          Run restore from a fresh shell that is not already inside tmux. The picker separates pre-boot snapshots from
+          post-boot snapshots and recommends the newest useful recovery point.
+        </p>
+        <div class="terminal" role="group" aria-label="Restore command">
+          <div class="terminal-head"><span class="dot"></span>restore</div>
+          <pre><span class="prompt">$</span> tmux-resurrect-restore</pre>
+        </div>
+        <p>Useful restore forms:</p>
+        <div class="terminal" role="group" aria-label="Restore command variants">
+          <div class="terminal-head"><span class="dot"></span>restore variants</div>
+          <pre><span class="prompt">$</span> tmux-resurrect-restore --list
+<span class="prompt">$</span> tmux-resurrect-restore --restore latest-good
+<span class="prompt">$</span> tmux-resurrect-restore --restore latest-good --no-confirm
+<span class="prompt">$</span> tmux-resurrect-restore --restore 20260503T143047</pre>
+        </div>
+        <div class="callout">
+          <strong>Rule:</strong> <code>--list</code> is safe inside tmux. Actual restore is intentionally blocked inside tmux
+          because it needs to restart the tmux server.
+        </div>
+      </section>
+
+      <section id="palette">
+        <h2>iTerm2 Palette</h2>
+        <p>
+          The active palette is <code>slick-green</code>. It keeps the green terminal look, avoids unreadable dark green text,
+          and uses FiraCode Nerd Font Mono at size 16 with line height 1.2 in the saved iTerm2 profile.
+        </p>
+        <div class="terminal" role="group" aria-label="Palette commands">
+          <div class="terminal-head"><span class="dot"></span>palette</div>
+          <pre><span class="prompt">$</span> ./palette_preview.sh slick-green
+<span class="prompt">$</span> ./palette_preview.sh slick-green-other-font</pre>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Color</th>
+              <th>Hex</th>
+              <th>Use</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Background</td>
+              <td><code>#000000</code></td>
+              <td>Terminal canvas and tmux status background.</td>
+            </tr>
+            <tr>
+              <td>Foreground</td>
+              <td><code>#c8ffd8</code></td>
+              <td>Normal readable text.</td>
+            </tr>
+            <tr>
+              <td>Accent</td>
+              <td><code>#00ff88</code></td>
+              <td>Cursor, active tab, and interactive highlights.</td>
+            </tr>
+            <tr>
+              <td>Dim</td>
+              <td><code>#89b69b</code></td>
+              <td>Muted text that stays readable on black.</td>
+            </tr>
+            <tr>
+              <td>Cyan</td>
+              <td><code>#58ffc7</code></td>
+              <td>Links and secondary accents.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="commands">
+        <h2>Command Cheat Sheet</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Goal</th>
+              <th>Command</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Open the interactive launcher</td>
+              <td><code>tmux-session</code></td>
+            </tr>
+            <tr>
+              <td>Resume the default session</td>
+              <td><code>tmux-session --resume</code></td>
+            </tr>
+            <tr>
+              <td>Resume a named session</td>
+              <td><code>tmux-session --session work --resume</code></td>
+            </tr>
+            <tr>
+              <td>Create or switch to a project tab</td>
+              <td><code>tmux-session --create handoff ~/Code/handoff</code></td>
+            </tr>
+            <tr>
+              <td>Create a tab in a named session</td>
+              <td><code>tmux-session --session work --create api ~/Code/api</code></td>
+            </tr>
+            <tr>
+              <td>Switch to an existing tab</td>
+              <td><code>tmux-session --switch-tab handoff</code></td>
+            </tr>
+            <tr>
+              <td>Detach iTerm2 clients</td>
+              <td><code>tmux-session --detach</code></td>
+            </tr>
+            <tr>
+              <td>List saved restore points</td>
+              <td><code>tmux-resurrect-restore --list</code></td>
+            </tr>
+            <tr>
+              <td>Restore the best snapshot</td>
+              <td><code>tmux-resurrect-restore --restore latest-good</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <h3>Shift+Enter does not create a new line</h3>
+        <p>
+          Confirm tmux extended keys are off. This setup keeps them disabled because that restores the expected multiline behavior.
+        </p>
+        <div class="terminal" role="group" aria-label="Shift Enter troubleshooting">
+          <div class="terminal-head"><span class="dot"></span>keys</div>
+          <pre><span class="prompt">$</span> tmux show-options -s extended-keys
+extended-keys off</pre>
+        </div>
+
+        <h3>Command or Option arrows do not move across the line</h3>
+        <p>
+          Command+Left and Command+Right should move to the start and end of the line.
+          Option+Left and Option+Right should move by word. The iTerm2 profile needs explicit key mappings:
+          Option+Left sends <code>0x1b 0x62</code>, and Option+Right sends <code>0x1b 0x66</code>.
+        </p>
+        <div class="terminal" role="group" aria-label="Arrow key troubleshooting">
+          <div class="terminal-head"><span class="dot"></span>arrows</div>
+          <pre><span class="prompt">$</span> zsh -ic 'bindkey' | grep -E '"\\^\\[b"|"\\^\\[f"'
+"^[b" backward-word
+"^[f" forward-word</pre>
+        </div>
+
+        <h3>Text becomes black or unreadable</h3>
+        <p>
+          Reapply the saved palette from an iTerm2 shell. If a temporary preview profile is active, this switches back to <code>omri</code>
+          and removes the preview file.
+        </p>
+        <div class="terminal" role="group" aria-label="Color troubleshooting">
+          <div class="terminal-head"><span class="dot"></span>colors</div>
+          <pre><span class="prompt">$</span> cd ~/Code/tmux-resurrect-launchd
+<span class="prompt">$</span> ./palette_preview.sh slick-green</pre>
+        </div>
+
+        <h3>iTerm2 shows native tmux controls</h3>
+        <p>
+          That is expected when <code>tmux-session</code> attaches with <code>tmux -CC</code>.
+          It means iTerm2 is rendering tmux sessions as native windows, tabs, and panes.
+        </p>
+
+        <h3>Dynamic Profile JSON warning appears</h3>
+        <p>
+          The preview script validates JSON before moving it into iTerm2's watched directory. If an old broken temp file remains,
+          remove the <code>codex-palette-preview*</code> files and apply <code>slick-green</code> again.
+        </p>
+        <div class="terminal" role="group" aria-label="Dynamic profile cleanup">
+          <div class="terminal-head"><span class="dot"></span>dynamic profiles</div>
+          <pre><span class="prompt">$</span> find "$HOME/Library/Application Support/iTerm2/DynamicProfiles" -name 'codex-palette-preview*' -print
+<span class="prompt">$</span> ./palette_preview.sh slick-green</pre>
+        </div>
+
+        <h3>Check daemon health</h3>
+        <div class="terminal" role="group" aria-label="Daemon troubleshooting">
+          <div class="terminal-head"><span class="dot"></span>daemon</div>
+          <pre><span class="prompt">$</span> launchctl print "gui/$(id -u)/com.user.tmux-resurrect-save"
+<span class="prompt">$</span> tail -n 50 ~/Library/Logs/tmux-resurrect-save.log</pre>
+        </div>
+      </section>
+
+      <p class="footer">
+        Open this file directly in a browser. No local server is required.
+      </p>
+    </main>
+  </div>
+</body>
+</html>
