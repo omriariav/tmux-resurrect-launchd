@@ -85,6 +85,7 @@ validate_tab_name() {
 validate_session_name() {
     [ -n "$1" ] || die "session name is required"
     case "$1" in
+        -* ) die "session name cannot start with '-'" ;;
         *:*) die "session names cannot contain ':'" ;;
     esac
 }
@@ -163,7 +164,10 @@ create_tab() {
     validate_tab_name "$name"
     [ -d "$folder" ] || die "folder does not exist: $folder"
 
-    ensure_session "$folder"
+    if ! session_exists; then
+        tmux new-session -d -s "$SESSION_NAME" -n "$name" -c "$folder"
+        select_tab "$name"
+    fi
 
     existing=$(tab_target_by_name "$name")
     if [ -n "$existing" ]; then

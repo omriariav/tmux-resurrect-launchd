@@ -6,7 +6,8 @@ set -euo pipefail
 SESSION_NAME="${TMUX_SESSION_NAME:-main}"
 IT2SETCOLOR="/Applications/iTerm.app/Contents/Resources/utilities/it2setcolor"
 IT2PROFILE="/Applications/iTerm.app/Contents/Resources/utilities/it2profile"
-DYNAMIC_PROFILE_DIR="$HOME/Library/Application Support/iTerm2/DynamicProfiles"
+DYNAMIC_PROFILE_PARENT="$HOME/Library/Application Support/iTerm2"
+DYNAMIC_PROFILE_DIR="$DYNAMIC_PROFILE_PARENT/DynamicProfiles"
 DYNAMIC_PROFILE_FILE="$DYNAMIC_PROFILE_DIR/codex-palette-preview.json"
 
 usage() {
@@ -150,8 +151,9 @@ EOF
 }
 
 write_font_preview_profile() {
+    mkdir -p "$DYNAMIC_PROFILE_PARENT"
     mkdir -p "$DYNAMIC_PROFILE_DIR"
-    tmpdir=$(mktemp -d "$DYNAMIC_PROFILE_DIR/.codex-palette-preview.XXXXXX")
+    tmpdir=$(mktemp -d "$DYNAMIC_PROFILE_PARENT/.codex-palette-preview.XXXXXX")
     tmp="$tmpdir/profile.json"
     {
         cat <<'EOF'
@@ -206,11 +208,17 @@ EOF
 
 apply_profile_switch() {
     if [ "$NAME" = "slick-green" ]; then
+        if [ -x "$IT2PROFILE" ]; then
+            case "${LC_TERMINAL:-}:${TERM_PROGRAM:-}" in
+                *iTerm2*|*iTerm.app*) "$IT2PROFILE" -s omri || true ;;
+            esac
+        fi
         rm -f "$DYNAMIC_PROFILE_FILE"
         return 0
     fi
 
     [ -x "$IT2PROFILE" ] || return 0
+
     case "${LC_TERMINAL:-}:${TERM_PROGRAM:-}" in
         *iTerm2*|*iTerm.app*) ;;
         *) return 0 ;;
