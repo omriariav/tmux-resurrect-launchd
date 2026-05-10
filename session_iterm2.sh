@@ -9,6 +9,7 @@
 # Daily commands:
 #   tmux-session
 #   tmux-session --resume [main]
+#   tmux-session --session <name> --resume
 #   tmux-session --create <tab-name> <folder>
 #   tmux-session --switch-tab <tab-name>
 #   tmux-session --detach
@@ -21,21 +22,26 @@ IT2SETCOLOR="/Applications/iTerm.app/Contents/Resources/utilities/it2setcolor"
 
 usage() {
     cat <<'EOF'
-tmux-session - manage the main iTerm2/tmux session and its tabs.
+tmux-session - manage iTerm2/tmux sessions and their tabs.
 
 Usage:
-  tmux-session
-  tmux-session --resume [main]
-  tmux-session --create <tab-name> <folder>
-  tmux-session --detach
-  tmux-session --list
+  tmux-session [--session <name>]
+  tmux-session [--session <name>] --resume
+  tmux-session [--session <name>] --create <tab-name> <folder>
+  tmux-session [--session <name>] --detach
+  tmux-session [--session <name>] --list
 
 Advanced:
-  tmux-session --switch-tab <tab-name>
+  tmux-session [--session <name>] --switch-tab <tab-name>
+
+Options:
+  -s, --session <name>   tmux session to manage (default: main)
 
 Examples:
   tmux-session --resume
+  tmux-session --session work --resume
   tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
+  tmux-session --session work --create api ~/Code/api
   tmux-session --switch-tab taboola-pm-os
 EOF
 }
@@ -76,6 +82,13 @@ validate_tab_name() {
     esac
 }
 
+validate_session_name() {
+    [ -n "$1" ] || die "session name is required"
+    case "$1" in
+        *:*) die "session names cannot contain ':'" ;;
+    esac
+}
+
 session_exists() {
     tmux has-session -t "$SESSION_NAME" 2>/dev/null
 }
@@ -107,7 +120,7 @@ list_tabs_raw() {
 print_tabs() {
     rows=$(list_tabs_raw)
     if [ -z "$rows" ]; then
-        echo "No tmux session is running. Press Enter to start main."
+        printf 'No tmux session %s is running. Press Enter to start it.\n' "$SESSION_NAME"
         return 0
     fi
 
@@ -210,8 +223,8 @@ interactive() {
         echo
         print_tabs
         echo
-        echo "Enter/r) resume main session"
-        echo "c) create tab in main"
+        printf 'Enter/r) resume %s session\n' "$SESSION_NAME"
+        printf 'c) create tab in %s\n' "$SESSION_NAME"
         echo "d) detach iTerm2 clients"
         echo "l) list tabs"
         echo "q) quit"
@@ -230,16 +243,44 @@ interactive() {
     done
 }
 
+POSITIONAL=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -s|--session)
+            [ $# -ge 2 ] || die "$1 requires <name>"
+            SESSION_NAME="$2"
+            validate_session_name "$SESSION_NAME"
+            shift 2
+            ;;
+        --session=*)
+            SESSION_NAME="${1#--session=}"
+            validate_session_name "$SESSION_NAME"
+            shift
+            ;;
+        --)
+            shift
+            POSITIONAL+=("$@")
+            break
+            ;;
+        *)
+            POSITIONAL+=("$1")
+            shift
+            ;;
+    esac
+done
+
+validate_session_name "$SESSION_NAME"
+set -- "${POSITIONAL[@]}"
+
 case "${1:-}" in
     "")
         interactive
         ;;
     --resume)
-        if [ $# -gt 2 ]; then
-            die "$1 accepts at most the managed session name: $SESSION_NAME"
-        fi
-        if [ $# -eq 2 ] && [ "$2" != "$SESSION_NAME" ]; then
-            die "this launcher resumes session '$SESSION_NAME'. Use --switch-tab only if you need a specific tab."
+        [ $# -le 2 ] || die "--resume accepts at most one session name"
+        if [ $# -eq 2 ]; then
+            SESSION_NAME="$2"
+            validate_session_name "$SESSION_NAME"
         fi
         resume_main
         ;;

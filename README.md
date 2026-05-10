@@ -64,18 +64,20 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 ## iTerm2 session launcher
 
-`tmux-session` is an iTerm2-first launcher for the default `main` tmux session. In iTerm2 control mode, `main` is the iTerm2 window, tmux windows are iTerm2 tabs, and tmux panes are panes inside each tab. The tab table is status only; the primary action is resuming `main`.
+`tmux-session` is an iTerm2-first launcher for tmux sessions. In iTerm2 control mode, a tmux session is the iTerm2 window, tmux windows are iTerm2 tabs, and tmux panes are panes inside each tab. The tab table is status only; the primary action is resuming the selected session. The default session is `main`.
 
 ```bash
 tmux-session
 tmux-session --resume
+tmux-session --session work --resume
 tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
+tmux-session --session work --create api ~/Code/api
 tmux-session --switch-tab taboola-pm-os
 tmux-session --detach
 tmux-session --list
 ```
 
-Outside tmux, resume/create/switch use `tmux -CC` so iTerm2 owns the native tab/window UI. In iTerm2 this can show the native tmux integration controls; that is expected and is not a second daemon. Inside tmux, resume switches the client to `main`.
+Outside tmux, resume/create/switch use `tmux -CC` so iTerm2 owns the native tab/window UI. In iTerm2 this can show the native tmux integration controls; that is expected and is not a second daemon. Inside tmux, resume switches the current client to the selected session.
 
 ## Palette preview
 
