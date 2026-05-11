@@ -64,20 +64,39 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 ## iTerm2 session launcher
 
-`tmux-session` is an iTerm2-first launcher for tmux sessions. In iTerm2 control mode, a tmux session is the iTerm2 window, tmux windows are iTerm2 tabs, and tmux panes are panes inside each tab. The tab table is status only; the primary action is resuming the selected session. The default session is `main`.
+`tmux-session` is an iTerm2-first launcher for tmux sessions. It always uses `tmux -CC attach`, so the iTerm2 window you run it from becomes the **control channel** (showing iTerm2's "Command Menu / esc Detach cleanly" prompt — minimize it and ignore), and iTerm2 spawns a **separate native iTerm2 window per tmux window** in the session. Default session is `main` (override with `--session <name>` or `TMUX_SESSION_NAME`). To run two sessions in parallel, open a second fresh iTerm2 window from **Shell → New Window** and run a second `--resume` there.
 
 ```bash
-tmux-session
-tmux-session --resume
-tmux-session --session work --resume
+tmux-session                                         # resume main
+tmux-session --session work --resume                 # resume/create "work"
 tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
 tmux-session --session work --create api ~/Code/api
-tmux-session --switch-tab taboola-pm-os
+tmux-session ls                                       # all sessions + tabs
+tmux-session --session main --list                    # tabs in one session
+tmux-session --rename 0 pm-os                         # rename window 0 in main
+tmux-session --rename-all                             # auto-rename all to basename(folder)
 tmux-session --detach
-tmux-session --list
 ```
 
-Outside tmux, resume/create/switch use `tmux -CC` so iTerm2 owns the native tab/window UI. In iTerm2 this can show the native tmux integration controls; that is expected and is not a second daemon. Inside tmux, resume switches the current client to the selected session.
+`--create` attaches in one shot — no follow-up `--resume` needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab name already exists, the launcher selects it instead of duplicating.
+
+Running `--resume` or `--create` from **inside** an existing tmux client is refused (the historical `switch-client` behavior silently hijacked the current `-CC` connection to a different session — surprising). The error points at `tmux new-window` for the "add tab to current session" case.
+
+### Renaming windows
+
+After `--create`, tmux's automatic-rename can override your tab name with the foreground process (`codex-aarch64-a`, `2.1.131`, …). `--rename` and `--rename-all` flip the affected windows to manual-name mode so the name sticks:
+
+```bash
+tmux-session --rename 0 pm-os                         # by index
+tmux-session --rename codex-aarch64-a notes           # by current name
+tmux-session --rename-all                             # bulk: basename(active pane's cwd)
+```
+
+`--rename-all` skips windows whose active pane sits in `$HOME` (basename would be your username).
+
+### Zombie `-CC` client cleanup
+
+When an iTerm2 window holding a `-CC` connection is closed without a clean detach, tmux usually reaps the client — but not always. The daemon `tmux-resurrect-save` checks for clients whose originating `tmux -CC attach-session` PID is no longer alive (`kill -0`) and detaches those before each save. This keeps `tmux run-shell` from routing through a dead client (which would write degenerate 12-byte snapshots). The check uses PID liveness rather than wall-clock activity, so a live-but-backgrounded iTerm2 window is never disturbed.
 
 ## Palette preview
 

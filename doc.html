@@ -428,29 +428,32 @@
       <section id="mental-model">
         <h2>Mental Model</h2>
         <p>
-          The setup is tuned for iTerm2 control mode. Think of the pieces like this:
+          The launcher always uses <code>tmux -CC attach</code>. That is iTerm2's native tmux integration,
+          and its behavior is non-obvious until you see it:
         </p>
         <div class="grid">
           <div class="tile">
-            <h3>Session</h3>
-            <p>A tmux session is the thing you resume. In iTerm2 control mode, it behaves like the main iTerm2 window.</p>
+            <h3>Control channel</h3>
+            <p>The iTerm2 window you run <code>tmux-session</code> from becomes the <code>-CC</code> control channel — you'll see iTerm2's <em>"Command Menu / esc Detach cleanly"</em> prompt. Minimize it; don't work there. Press <code>esc</code> in it to detach the session cleanly.</p>
           </div>
           <div class="tile">
-            <h3>Tab</h3>
-            <p>A tmux window is shown as an iTerm2 tab. The launcher calls these tabs because that is how you work with them.</p>
+            <h3>Working windows</h3>
+            <p>For each tmux window in the session, iTerm2 spawns a <strong>separate native iTerm2 window</strong> (or tab, depending on your iTerm2 prefs). Those are where you actually work. They get real <code>Cmd-Tab</code> / Mission Control treatment, not a tmux mux inside one terminal.</p>
           </div>
           <div class="tile">
             <h3>Pane</h3>
-            <p>A tmux pane is a split inside a tab. This is where shells, editors, Codex, and long-running commands live.</p>
+            <p>A tmux pane is a split inside a window. This is where shells, editors, Codex, and long-running commands live.</p>
           </div>
           <div class="tile">
             <h3>Daemon</h3>
-            <p>There is one launchd job. It saves tmux snapshots every 15 minutes. The iTerm2 tmux UI is not a second daemon.</p>
+            <p>One launchd job snapshots tmux state every 15 minutes via <code>tmux-resurrect</code>. iTerm2's tmux UI is not a second daemon.</p>
           </div>
         </div>
         <div class="callout">
-          <strong>Default session:</strong> the launcher uses <code>main</code> unless you pass <code>--session &lt;name&gt;</code>
-          or set <code>TMUX_SESSION_NAME</code>.
+          <strong>Two sessions in parallel:</strong> open a second fresh iTerm2 window via <strong>Shell → New Window</strong> (not <code>Cmd-T</code> inside the attached window) and run another <code>tmux-session --session &lt;name&gt; --resume</code> there. Each session gets its own control channel and its own native working windows. Default session is <code>main</code> (override with <code>--session &lt;name&gt;</code> or <code>TMUX_SESSION_NAME</code>).
+        </div>
+        <div class="callout">
+          <strong>Refused inside tmux:</strong> running <code>--resume</code> or <code>--create</code> from inside an existing tmux pane is refused, with a hint pointing at <code>tmux new-window -n &lt;name&gt; -c &lt;dir&gt;</code> for the "add a tab here" case. (The old <code>switch-client</code> behavior silently hijacked the current connection.)
         </div>
       </section>
 
@@ -472,7 +475,7 @@
           <pre><span class="prompt">$</span> launchctl list | grep tmux-resurrect-save
 <span class="prompt">$</span> tail ~/Library/Logs/tmux-resurrect-save.log
 <span class="prompt">$</span> tmux-resurrect-restore --list | head
-<span class="prompt">$</span> tmux-session --list</pre>
+<span class="prompt">$</span> tmux-session ls</pre>
         </div>
       </section>
 
@@ -482,7 +485,7 @@
           <article class="step">
             <div>
               <h3>Resume your main tmux session</h3>
-              <p>Run this from any regular shell, usually inside iTerm2.</p>
+              <p>Run this from a fresh iTerm2 window (the one it runs in becomes the <code>-CC</code> control channel; iTerm2 spawns separate native windows for the session's tmux windows).</p>
               <div class="terminal" role="group" aria-label="Resume main session">
                 <div class="terminal-head"><span class="dot"></span>resume</div>
                 <pre><span class="prompt">$</span> tmux-session --resume</pre>
@@ -491,34 +494,27 @@
           </article>
           <article class="step">
             <div>
-              <h3>Use the interactive picker</h3>
-              <p>
-                The picker shows tabs as context only. Press Enter or <code>r</code> to resume the session.
-                Use <code>c</code> to create a new tab inside that session.
-              </p>
-              <div class="terminal" role="group" aria-label="Interactive tmux-session picker">
-                <div class="terminal-head"><span class="dot"></span>picker</div>
-                <pre><span class="prompt">$</span> tmux-session
+              <h3>See what sessions exist</h3>
+              <p><code>ls</code> prints every session on the tmux server with its tabs and an <code>(attached, N clients)</code> marker for live ones. Pair with <code>--session &lt;name&gt; --list</code> to scope to a single session.</p>
+              <div class="terminal" role="group" aria-label="List sessions">
+                <div class="terminal-head"><span class="dot"></span>list</div>
+                <pre><span class="prompt">$</span> tmux-session ls
 
-tmux session: main
-tab  name                           panes   active  path
----- ------------------------------ -----   ------  ----
-0    taboola-pm-os                  3       yes     /Users/omri.a/Code/taboola-pm-os
-1    handoff                        2       no      /Users/omri.a/Code/handoff
+session: main (attached, 1 client)
+   0: pm-os         (1p)  /Users/omri.a/Code/taboola-pm-os
+   1: data-track    (2p)  /Users/omri.a/Code/data-track-map
+ * 2: handoff       (4p)  /Users/omri.a/Code/handoff
 
-Enter/r) resume main session
-c) create tab in main
-d) detach iTerm2 clients
-l) list tabs
-q) quit</pre>
+session: work
+   0: api           (1p)  /Users/omri.a/Code/api</pre>
               </div>
             </div>
           </article>
           <article class="step">
             <div>
-              <h3>Create a tab for a project</h3>
+              <h3>Create a tab for a project — and attach in one shot</h3>
               <p>
-                This creates the session if needed. If the tab already exists, it switches to it.
+                <code>--create</code> already attaches via <code>tmux -CC attach</code>; no follow-up <code>--resume</code> needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab already exists, the launcher selects it instead of duplicating.
               </p>
               <div class="terminal" role="group" aria-label="Create tab">
                 <div class="terminal-head"><span class="dot"></span>create tab</div>
@@ -528,15 +524,29 @@ q) quit</pre>
           </article>
           <article class="step">
             <div>
-              <h3>Work with another session</h3>
+              <h3>Run a second session in parallel</h3>
               <p>
-                Use this when you want a separate tmux session in another iTerm2 window or tab.
+                Open a second fresh iTerm2 window via <strong>Shell → New Window</strong> (so it isn't already inside tmux), then attach the other session there.
               </p>
               <div class="terminal" role="group" aria-label="Named session">
                 <div class="terminal-head"><span class="dot"></span>named session</div>
                 <pre><span class="prompt">$</span> tmux-session --session work --resume
 <span class="prompt">$</span> tmux-session --session work --create api ~/Code/api
 <span class="prompt">$</span> TMUX_SESSION_NAME=work tmux-session --resume</pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>Clean up window names</h3>
+              <p>
+                tmux's automatic-rename can overwrite your tab name with the foreground process (<code>codex-aarch64-a</code>, version tags, etc.). <code>--rename-all</code> walks every window and renames it to <code>basename(active pane's cwd)</code>, flipping each to manual-name mode so the new name sticks. Windows whose active pane sits in <code>$HOME</code> are skipped.
+              </p>
+              <div class="terminal" role="group" aria-label="Rename windows">
+                <div class="terminal-head"><span class="dot"></span>rename</div>
+                <pre><span class="prompt">$</span> tmux-session --rename-all
+<span class="prompt">$</span> tmux-session --rename 0 pm-os
+<span class="prompt">$</span> tmux-session --rename codex-aarch64-a notes</pre>
               </div>
             </div>
           </article>
@@ -670,19 +680,23 @@ q) quit</pre>
           </thead>
           <tbody>
             <tr>
-              <td>Open the interactive launcher</td>
-              <td><code>tmux-session</code></td>
-            </tr>
-            <tr>
               <td>Resume the default session</td>
-              <td><code>tmux-session --resume</code></td>
+              <td><code>tmux-session</code> or <code>tmux-session --resume</code></td>
             </tr>
             <tr>
               <td>Resume a named session</td>
               <td><code>tmux-session --session work --resume</code></td>
             </tr>
             <tr>
-              <td>Create or switch to a project tab</td>
+              <td>List all sessions and their tabs</td>
+              <td><code>tmux-session ls</code></td>
+            </tr>
+            <tr>
+              <td>List tabs in one session</td>
+              <td><code>tmux-session --session main --list</code></td>
+            </tr>
+            <tr>
+              <td>Create or switch to a project tab (and attach)</td>
               <td><code>tmux-session --create handoff ~/Code/handoff</code></td>
             </tr>
             <tr>
@@ -690,8 +704,12 @@ q) quit</pre>
               <td><code>tmux-session --session work --create api ~/Code/api</code></td>
             </tr>
             <tr>
-              <td>Switch to an existing tab</td>
-              <td><code>tmux-session --switch-tab handoff</code></td>
+              <td>Rename one window</td>
+              <td><code>tmux-session --rename 0 pm-os</code></td>
+            </tr>
+            <tr>
+              <td>Auto-rename all windows to <code>basename(folder)</code></td>
+              <td><code>tmux-session --rename-all</code></td>
             </tr>
             <tr>
               <td>Detach iTerm2 clients</td>
