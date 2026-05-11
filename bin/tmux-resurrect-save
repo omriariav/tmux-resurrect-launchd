@@ -84,27 +84,47 @@ prior_panes=$(count_panes "$prior_target")
 # in case (b) it does not.
 prior_dir_mtime=$(stat -f '%m' "$RESURRECT_DIR" 2>/dev/null || echo 0)
 
-# Drop stale control-mode clients before saving. iTerm2 -CC connections
+# Drop zombie control-mode clients before saving. iTerm2 -CC connections
 # whose windows were closed without a clean detach linger as "attached"
-# clients with the pause-after flag set; tmux eventually pauses them when
-# they fall behind. `tmux run-shell` may route format expansion through
-# one of those paused clients, in which case tab delimiters collapse to
-# underscores and save.sh writes a 12-byte degenerate snapshot — or no
-# file at all, manifesting as the "did not advance last" warning.
+# clients with the pause-after flag set; tmux eventually pauses them
+# when they fall behind. `tmux run-shell` may route format expansion
+# through one of those paused clients, in which case tab delimiters
+# collapse to underscores and save.sh writes a 12-byte degenerate
+# snapshot — or no file at all, manifesting as the "did not advance
+# last" warning.
 #
-# pause-after is set on every iTerm2 -CC client, including the live one,
-# so we can't filter on the flag alone. We use client_activity: any
-# control-mode client idle for >1 hour is almost certainly an iTerm2
-# zombie (a real user-facing connection sees keystrokes or status-line
-# refreshes well inside an hour).
-now_epoch=$(date +%s)
-stale_threshold=3600
-tmux list-clients -F '#{client_tty}|#{client_flags}|#{client_activity}' 2>/dev/null \
-    | awk -F'|' -v now="$now_epoch" -v thr="$stale_threshold" '
-        $2 ~ /control-mode/ && $2 ~ /pause-after/ && (now - $3) > thr { print $1 }
-      ' \
-    | while IFS= read -r stale_tty; do
-        [ -n "$stale_tty" ] && tmux detach-client -t "$stale_tty" 2>/dev/null || true
+# The original heuristic was time-based (idle >1h → zombie). That was
+# wrong: a real user who backgrounds an iTerm2 window for an afternoon
+# is "idle" by that definition, and the daemon would happily detach
+# them, presenting as "Session detached" in the control-channel window
+# with no other UI.
+#
+# The sharper signal is `client_pid`: the PID of the `tmux -CC
+# attach-session` process that originated the connection. When iTerm2
+# closes a window without a clean detach, it kills that process. tmux
+# usually notices the EOF on the TTY and reaps the client, but not
+# always — we've observed clients persisting in "attached,paused" state
+# for days. `kill -0 <client_pid>` distinguishes the two cases:
+# live process → live connection; dead PID → zombie.
+#
+# PID reuse: macOS's PID_MAX is 99999 and allocation is incremental, so
+# on a high-churn machine the space can wrap inside the 15-min daemon
+# cadence. To bound the reuse risk, we additionally check that the PID
+# (if live) actually belongs to a `tmux` process via `ps -o comm=`. A
+# reused PID would have to land on *another* tmux instance for us to
+# falsely treat a zombie as live; the opposite mistake (detaching a
+# real client) requires the reused PID to be a tmux process whose
+# original was killed — extremely unlikely. Worst case: we miss a
+# zombie for one tick, which the regression guard already tolerates.
+tmux list-clients -F '#{client_tty}|#{client_flags}|#{client_pid}' 2>/dev/null \
+    | awk -F'|' '$2 ~ /control-mode/ && $2 ~ /pause-after/ { print $1 "|" $3 }' \
+    | while IFS='|' read -r stale_tty stale_pid; do
+        [ -n "$stale_tty" ] && [ -n "$stale_pid" ] || continue
+        if kill -0 "$stale_pid" 2>/dev/null \
+           && [ "$(ps -p "$stale_pid" -o comm= 2>/dev/null | xargs basename 2>/dev/null)" = "tmux" ]; then
+            continue
+        fi
+        tmux detach-client -t "$stale_tty" 2>/dev/null || true
     done
 
 tmux run-shell "$SAVE_SCRIPT quiet"
