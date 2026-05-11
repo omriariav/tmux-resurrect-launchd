@@ -1,0 +1,149 @@
+#!/bin/sh
+# Per-interval saver invoked by launchd (com.user.tmux-resurrect-save).
+# Wraps tmux-resurrect's save.sh with the regression guard and the
+# .restoring fence. Installed by install.sh, which substitutes
+# __TMUX_DIR__ and __HOME__.
+#
+# We invoke save.sh via `tmux run-shell` rather than running it directly.
+# Without an attached client, tmux's display-message mangles tab delimiters
+# in its format output — save.sh relies on those tabs and ends up writing
+# 12-byte snapshots containing only "state_main_" (underscores in place of
+# tabs). Wrapping the call in `run-shell` establishes a proper client
+# context so format output is faithful. This is the same context that
+# tmux-continuum gets implicitly via status-right `#()` invocation.
+#
+# After saving, we apply a regression guard: if the new snapshot has
+# dramatically fewer panes than the prior `last`, we leave the new
+# timestamped file on disk for forensics but revert `last` to the prior
+# good snapshot. This protects against the post-crash case where a fresh
+# tmux server with one default session would otherwise overwrite the
+# pre-crash recovery point. A user-visible sentinel file
+# `~/.tmux/resurrect/.allow_regression` disables the guard once (it is
+# removed after consultation), in case you legitimately tore down
+# sessions and want the new state to stick.
+
+export PATH=__TMUX_DIR__:$PATH
+RESURRECT_DIR="__HOME__/.tmux/resurrect"
+LAST="$RESURRECT_DIR/last"
+ALLOW="$RESURRECT_DIR/.allow_regression"
+RESTORING="$RESURRECT_DIR/.restoring"
+LAST_STATUS="$RESURRECT_DIR/.last_status"
+SAVE_SCRIPT="__HOME__/.tmux/plugins/tmux-resurrect/scripts/save.sh"
+log_ts="$(date '+%FT%T')"
+
+# .last_status is a single tab-separated line: status<TAB>epoch<TAB>detail.
+# Read by the precheck nudge so the user is told about a silent save
+# failure instead of finding out at the next crash. .restoring-skip and
+# stale-fence paths intentionally do not write a status — the previous
+# save's status is still authoritative.
+write_status() {
+    printf '%s\t%s\t%s\n' "$1" "$(date +%s)" "$2" > "$LAST_STATUS" 2>/dev/null || true
+}
+
+tmux ls >/dev/null 2>&1 || { write_status idle "no tmux server running"; exit 0; }
+if [ ! -x "$SAVE_SCRIPT" ]; then
+    echo "save: $log_ts skipped (save.sh missing at $SAVE_SCRIPT)"
+    write_status failed "tmux-resurrect plugin missing at $SAVE_SCRIPT"
+    exit 0
+fi
+
+# Coordinate with restore.sh: an interactive restore takes a one-way fence
+# by creating $RESTORING. We bail rather than fight it. Treat the file as
+# stale after 10 minutes (fail-open).
+if [ -e "$RESTORING" ]; then
+    age_min=$(( ( $(date +%s) - $(stat -f '%m' "$RESTORING" 2>/dev/null || echo 0) ) / 60 ))
+    if [ "$age_min" -lt 10 ]; then
+        echo "save: $log_ts skipped (restore in progress, ${age_min}m)"
+        exit 0
+    fi
+    echo "save: $log_ts WARN stale .restoring (${age_min}m old) — proceeding"
+    rm -f "$RESTORING"
+fi
+
+count_panes() {
+    # $1: snapshot path (relative to RESURRECT_DIR or absolute)
+    f="$1"
+    case "$f" in
+        /*) ;;
+        *) f="$RESURRECT_DIR/$f" ;;
+    esac
+    [ -f "$f" ] || { echo 0; return; }
+    awk -F'\t' '$1=="pane"' "$f" 2>/dev/null | wc -l | tr -d ' '
+}
+
+prior_target=""
+if [ -L "$LAST" ]; then
+    prior_target=$(readlink "$LAST")
+fi
+prior_panes=$(count_panes "$prior_target")
+# Capture the resurrect dir's mtime so we can distinguish two outcomes
+# that both leave `last` unchanged: (a) save.sh ran and found state
+# identical to `last`, then rm'd its own new snapshot — a legitimate
+# no-op; (b) save.sh failed silently and produced no file at all. In
+# case (a) the dir's mtime advances (a file was created and removed);
+# in case (b) it does not.
+prior_dir_mtime=$(stat -f '%m' "$RESURRECT_DIR" 2>/dev/null || echo 0)
+
+# Drop stale control-mode clients before saving. iTerm2 -CC connections
+# whose windows were closed without a clean detach linger as "attached"
+# clients with the pause-after flag set; tmux eventually pauses them when
+# they fall behind. `tmux run-shell` may route format expansion through
+# one of those paused clients, in which case tab delimiters collapse to
+# underscores and save.sh writes a 12-byte degenerate snapshot — or no
+# file at all, manifesting as the "did not advance last" warning.
+#
+# pause-after is set on every iTerm2 -CC client, including the live one,
+# so we can't filter on the flag alone. We use client_activity: any
+# control-mode client idle for >1 hour is almost certainly an iTerm2
+# zombie (a real user-facing connection sees keystrokes or status-line
+# refreshes well inside an hour).
+now_epoch=$(date +%s)
+stale_threshold=3600
+tmux list-clients -F '#{client_tty}|#{client_flags}|#{client_activity}' 2>/dev/null \
+    | awk -F'|' -v now="$now_epoch" -v thr="$stale_threshold" '
+        $2 ~ /control-mode/ && $2 ~ /pause-after/ && (now - $3) > thr { print $1 }
+      ' \
+    | while IFS= read -r stale_tty; do
+        [ -n "$stale_tty" ] && tmux detach-client -t "$stale_tty" 2>/dev/null || true
+    done
+
+tmux run-shell "$SAVE_SCRIPT quiet"
+
+new_target=""
+if [ -L "$LAST" ]; then
+    new_target=$(readlink "$LAST")
+fi
+new_panes=$(count_panes "$new_target")
+
+# tmux run-shell exits 0 even if save.sh failed. When `last` didn't
+# advance, use the resurrect dir mtime to distinguish a real silent
+# failure from an idle no-op (save.sh produced byte-identical content
+# to `last` and rm'd its own new snapshot — that still bumps the dir
+# mtime because of the create+unlink).
+if [ -n "$prior_target" ] && [ "$prior_target" = "$new_target" ]; then
+    new_dir_mtime=$(stat -f '%m' "$RESURRECT_DIR" 2>/dev/null || echo 0)
+    if [ "$new_dir_mtime" -gt "$prior_dir_mtime" ]; then
+        echo "save: $log_ts ok (idle, no state change; target=$new_target)"
+        write_status ok "$new_target ($prior_panes panes, idle)"
+    else
+        echo "save: $log_ts WARN save did not advance last (target=$new_target) — save.sh likely failed"
+        write_status failed "save.sh did not advance last (target=$new_target)"
+    fi
+    exit 0
+fi
+
+# Regression: prior had a meaningful state (>=2 panes), new is degenerate (<=1).
+# A bypass sentinel lets you keep a legitimate teardown.
+if [ -f "$ALLOW" ]; then
+    rm -f "$ALLOW"
+    echo "save: $log_ts regression guard bypassed via .allow_regression (prior=$prior_panes new=$new_panes target=$new_target)"
+    write_status bypassed "regression guard bypassed via .allow_regression"
+elif [ -n "$prior_target" ] && [ "$prior_target" != "$new_target" ] \
+     && [ "$prior_panes" -ge 2 ] && [ "$new_panes" -le 1 ]; then
+    ln -sf "$prior_target" "$LAST"
+    echo "save: $log_ts regression detected (prior=$prior_panes panes, new=$new_panes) — last reverted to $prior_target; new snapshot $new_target kept on disk. Bypass once: touch $ALLOW"
+    write_status reverted "regression detected (prior=$prior_panes new=$new_panes); last reverted"
+else
+    echo "save: $log_ts ok (prior=$prior_panes new=$new_panes target=$new_target)"
+    write_status ok "$new_target ($new_panes panes)"
+fi

@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Shell-rc-sourced nudge. Prints up to two short lines on new shells:
+#   - red:    last save FAILED (silent breakage in the daemon)
+#   - yellow: saved sessions exist but aren't running (post-crash hint)
+# Designed to be fast and silent on the common case.
+#
+# Suppression:
+#   - $TMUX set                       — already inside tmux, wrong moment
+#   - $TMUX_RESURRECT_QUIET=1         — opt-out (silences both lines)
+#   - 24h dismissal of the yellow line: tmux-resurrect-precheck --dismiss
+#     (the red line is intentionally not dismissable — broken daemon
+#     state should keep nagging until you fix it)
+
+DISMISS_DIR="$HOME/.cache/tmux-resurrect"
+DISMISS="$DISMISS_DIR/dismissed"
+RESURRECT_DIR="$HOME/.tmux/resurrect"
+LAST="$RESURRECT_DIR/last"
+LAST_STATUS="$RESURRECT_DIR/.last_status"
+LOG="$HOME/Library/Logs/tmux-resurrect-save.log"
+
+case "${1:-}" in
+    --dismiss)
+        mkdir -p "$DISMISS_DIR" && touch "$DISMISS"
+        echo "tmux-resurrect: missing-session nudge silenced for 24h."
+        exit 0
+        ;;
+    -h|--help)
+        cat <<EOF
+tmux-resurrect-precheck — shell-rc nudge for tmux-resurrect-launchd.
+
+Run with no args to print the nudge. Run with --dismiss to silence the
+yellow "saved sessions not running" line for 24h. Set TMUX_RESURRECT_QUIET=1
+in your environment to silence both lines persistently.
+EOF
+        exit 0
+        ;;
+esac
+
+[ -z "${TMUX:-}" ] || exit 0
+[ "${TMUX_RESURRECT_QUIET:-0}" != "1" ] || exit 0
+
+human_age() {
+    # $1 = epoch
+    diff=$(( $(date +%s) - $1 ))
+    if   [ "$diff" -lt 60 ];     then echo "${diff}s"
+    elif [ "$diff" -lt 3600 ];   then echo "$((diff / 60))m"
+    elif [ "$diff" -lt 86400 ];  then echo "$((diff / 3600))h"
+    else echo "$((diff / 86400))d"
+    fi
+}
+
+# --- red line: save failure -----------------------------------------------
+# Always shown when the most recent tick recorded `failed`. Not
+# dismissable — silent daemon breakage is exactly what this is meant to
+# surface, so suppression is only via TMUX_RESURRECT_QUIET=1.
+if [ -f "$LAST_STATUS" ]; then
+    IFS=$'\t' read -r status status_epoch _detail < "$LAST_STATUS"
+    if [ "$status" = "failed" ] && [ -n "$status_epoch" ]; then
+        age=$(human_age "$status_epoch")
+        printf '\033[31mtmux-resurrect: \xe2\x9a\xa0 last save FAILED %s ago — daemon may be broken. Check: tail %s\033[0m\n' \
+            "$age" "$LOG"
+    fi
+fi
+
+# --- yellow line: missing sessions ----------------------------------------
+[ -L "$LAST" ] || exit 0
+target=$(readlink "$LAST")
+case "$target" in /*) snap="$target" ;; *) snap="$RESURRECT_DIR/$target" ;; esac
+[ -f "$snap" ] || exit 0
+
+# Dismissal: 24h cooldown applies only to this line.
+if [ -f "$DISMISS" ]; then
+    dt=$(stat -f '%m' "$DISMISS" 2>/dev/null || echo 0)
+    [ $(( $(date +%s) - dt )) -lt 86400 ] && exit 0
+fi
+
+saved=$(awk -F'\t' '$1=="pane"{print $2}' "$snap" 2>/dev/null | sort -u)
+[ -n "$saved" ] || exit 0
+
+live=$(tmux ls -F '#{session_name}' 2>/dev/null | sort -u || true)
+missing=$(comm -23 <(printf '%s\n' "$saved") <(printf '%s\n' "$live"))
+[ -n "$missing" ] || exit 0
+
+missing_count=$(printf '%s\n' "$missing" | wc -l | tr -d ' ')
+saved_count=$(printf '%s\n' "$saved" | wc -l | tr -d ' ')
+
+snap_epoch=$(stat -f '%m' "$snap" 2>/dev/null || echo 0)
+age=$(human_age "$snap_epoch")
+
+# Action verb first; suppression hint is short and trailing. Long-form
+# dismiss instructions are behind `tmux-resurrect-precheck --help`.
+printf '\033[33mtmux-resurrect: %s of %s saved sessions not running (%s old) — run \033[1mtmux-resurrect-restore\033[0;33m   (silence: TMUX_RESURRECT_QUIET=1)\033[0m\n' \
+    "$missing_count" "$saved_count" "$age"
