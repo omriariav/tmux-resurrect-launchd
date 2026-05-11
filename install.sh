@@ -106,15 +106,22 @@ wire_rc() {
 unwire_rc() {
     rc="$1"
     [ -f "$rc" ] || return 0
-    grep -q '>>> tmux-resurrect-launchd >>>' "$rc" || return 0
-    # Strip the managed block in-place (BSD sed compatible).
+    grep -q '^# >>> tmux-resurrect-launchd >>>$' "$rc" || return 0
+    if ! grep -q '^# <<< tmux-resurrect-launchd <<<$' "$rc"; then
+        echo "warning: $rc has start marker but no end marker — refusing to edit. Strip manually." >&2
+        return 0
+    fi
+    # Strip the managed block. Write through `cat > "$rc"` rather than
+    # `mv` so a symlinked dotfile (dotfiles-manager pattern) keeps its
+    # inode and symlink target intact.
     tmp=$(mktemp)
     awk '
         /^# >>> tmux-resurrect-launchd >>>$/ {skip=1; next}
         /^# <<< tmux-resurrect-launchd <<<$/ {skip=0; next}
         !skip
     ' "$rc" > "$tmp"
-    mv "$tmp" "$rc"
+    cat "$tmp" > "$rc"
+    rm -f "$tmp"
     echo "removed precheck from $rc"
 }
 

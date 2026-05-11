@@ -164,14 +164,21 @@ create_tab() {
     validate_tab_name "$name"
     [ -d "$folder" ] || die "folder does not exist: $folder"
 
+    # Brand-new session: new-session already created a window named "$name"
+    # in "$folder", so we just select it. Falling through to new-window
+    # would add a duplicate tab.
     if ! session_exists; then
         tmux new-session -d -s "$SESSION_NAME" -n "$name" -c "$folder"
         select_tab "$name"
+        return 0
     fi
 
+    # Tab name already taken: select it instead of creating a second one
+    # with the same name.
     existing=$(tab_target_by_name "$name")
     if [ -n "$existing" ]; then
         select_tab "$existing"
+        return 0
     fi
 
     tmux new-window -t "$SESSION_NAME:" -n "$name" -c "$folder"
