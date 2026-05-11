@@ -115,6 +115,59 @@ cmd_ls_one() {
     print_session_windows "$SESSION_NAME"
 }
 
+resolve_window() {
+    # Resolve a user-supplied window reference (numeric index or current
+    # window name) to a tmux target like "main:3". Errors out if not found.
+    local ref="$1" idx
+    case "$ref" in
+        ''|*[!0-9]*)
+            idx=$(tmux list-windows -t "$SESSION_NAME" -F '#{window_index}|#{window_name}' 2>/dev/null \
+                | awk -F'|' -v want="$ref" '$2 == want { print $1; exit }')
+            [ -n "$idx" ] || die "window not found in session '$SESSION_NAME': $ref"
+            ;;
+        *)
+            idx="$ref"
+            tmux list-windows -t "$SESSION_NAME" -F '#{window_index}' 2>/dev/null \
+                | grep -qx "$idx" \
+                || die "window index $idx not present in session '$SESSION_NAME'"
+            ;;
+    esac
+    printf '%s:%s\n' "$SESSION_NAME" "$idx"
+}
+
+cmd_rename() {
+    local ref new_name target
+    ref="$1"
+    new_name="$2"
+    validate_name "tab name" "$new_name"
+    session_exists || die "tmux session '$SESSION_NAME' is not running"
+    target=$(resolve_window "$ref")
+    tmux rename-window -t "$target" "$new_name"
+    printf 'renamed %s -> %s\n' "$target" "$new_name"
+}
+
+cmd_rename_all() {
+    # Rename every window in the session to basename(pane_current_path) of
+    # its active pane. Useful for tidying up sessions where windows
+    # inherited process names like "codex-aarch64-a" or "2.1.131".
+    # Windows whose active pane sits in $HOME are skipped (basename
+    # would be the username, which is not a useful tab label).
+    session_exists || die "tmux session '$SESSION_NAME' is not running"
+    local renamed=0 skipped=0
+    while IFS='|' read -r idx path; do
+        if [ -z "$path" ] || [ "$path" = "$HOME" ]; then
+            printf 'skipped %s:%s (path: %s)\n' "$SESSION_NAME" "$idx" "${path:-<empty>}"
+            skipped=$((skipped + 1))
+            continue
+        fi
+        new_name=$(basename "$path")
+        tmux rename-window -t "$SESSION_NAME:$idx" "$new_name"
+        printf 'renamed %s:%s -> %s\n' "$SESSION_NAME" "$idx" "$new_name"
+        renamed=$((renamed + 1))
+    done < <(tmux list-windows -t "$SESSION_NAME" -F '#{window_index}|#{pane_current_path}')
+    printf '\n%d renamed, %d skipped.\n' "$renamed" "$skipped"
+}
+
 cmd_ls_all() {
     if ! tmux ls >/dev/null 2>&1; then
         printf 'no tmux server running.\n'
@@ -143,6 +196,8 @@ Usage:
   tmux-session [--session <name>] --detach              detach all clients
   tmux-session ls                                       list all sessions and their tabs
   tmux-session --session <name> --list                  list tabs in one session
+  tmux-session [--session <name>] --rename <ref> <new>  rename one window (ref = index or current name)
+  tmux-session [--session <name>] --rename-all         rename all windows to basename(folder)
 
 Run from a fresh iTerm2 window — that window becomes the -CC control
 channel, and iTerm2 opens a native window per tmux window in the session.
@@ -154,6 +209,8 @@ Examples:
   tmux-session --session work --resume                  # resume/create "work" with a default shell tab
   tmux-session --session work --create api ~/Code/api   # create "work" with first tab "api" in ~/Code/api and attach
   tmux-session --session work --create notes ~/notes    # add "notes" tab to existing "work" session
+  tmux-session --rename 0 pm-os                         # rename window 0 in main to "pm-os"
+  tmux-session --rename-all                             # auto-rename all main windows to their folder basename
 EOF
 }
 
@@ -173,7 +230,7 @@ while [ $# -gt 0 ]; do
             SESSION_EXPLICIT=1
             shift
             ;;
-        --resume|--create|--detach|--list|--ls)
+        --resume|--create|--detach|--list|--ls|--rename|--rename-all)
             [ -z "$ACTION" ] || die "specify only one action"
             ACTION="$1"
             shift
@@ -218,6 +275,14 @@ case "$ACTION" in
         # --list is session-scoped (use --session to pick the session).
         [ ${#ARGS[@]} -eq 0 ] || die "--list takes no positional arguments"
         cmd_ls_one
+        ;;
+    --rename)
+        [ ${#ARGS[@]} -eq 2 ] || die "--rename requires <window-ref> <new-name>"
+        cmd_rename "${ARGS[0]}" "${ARGS[1]}"
+        ;;
+    --rename-all)
+        [ ${#ARGS[@]} -eq 0 ] || die "--rename-all takes no positional arguments"
+        cmd_rename_all
         ;;
     --ls)
         # `ls` / `--ls`: scoped if --session was explicit, otherwise all sessions.
