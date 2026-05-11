@@ -104,11 +104,33 @@ cmd_detach() {
     printf 'Detached clients from tmux session %s.\n' "$SESSION_NAME"
 }
 
-cmd_list() {
+print_session_windows() {
+    tmux list-windows -t "$1" \
+        -F '  #{?window_active,* , }#{window_index}: #{window_name}  (#{window_panes}p)  #{pane_current_path}'
+}
+
+cmd_ls_one() {
     session_exists || { printf 'tmux session %s is not running.\n' "$SESSION_NAME"; return 0; }
-    printf 'tmux session: %s\n' "$SESSION_NAME"
-    tmux list-windows -t "$SESSION_NAME" \
-        -F '#{?window_active,* , }#{window_index}: #{window_name}  (#{window_panes}p)  #{pane_current_path}'
+    printf 'session: %s\n' "$SESSION_NAME"
+    print_session_windows "$SESSION_NAME"
+}
+
+cmd_ls_all() {
+    if ! tmux ls >/dev/null 2>&1; then
+        printf 'no tmux server running.\n'
+        return 0
+    fi
+    # Each line: name<TAB>attached_clients
+    tmux list-sessions -F '#{session_name}|#{session_attached}' \
+        | while IFS='|' read -r name clients; do
+            if [ "${clients:-0}" -gt 0 ]; then
+                printf 'session: %s (attached, %s client%s)\n' "$name" "$clients" "$([ "$clients" -eq 1 ] || printf s)"
+            else
+                printf 'session: %s\n' "$name"
+            fi
+            print_session_windows "$name"
+            echo
+        done
 }
 
 usage() {
@@ -119,7 +141,8 @@ Usage:
   tmux-session [--session <name>] [--resume]            resume (default; creates if needed)
   tmux-session [--session <name>] --create <tab> <dir>  add/select a tab and attach
   tmux-session [--session <name>] --detach              detach all clients
-  tmux-session [--session <name>] --list                show tabs
+  tmux-session ls                                       list all sessions and their tabs
+  tmux-session --session <name> --list                  list tabs in one session
 
 Run from a fresh iTerm2 window — that window becomes the -CC control
 channel, and iTerm2 opens a native window per tmux window in the session.
@@ -127,6 +150,7 @@ Default session is "main" (override with --session or TMUX_SESSION_NAME).
 
 Examples:
   tmux-session                                          # resume main
+  tmux-session ls                                       # all sessions + tabs
   tmux-session --session work --resume                  # resume/create "work" with a default shell tab
   tmux-session --session work --create api ~/Code/api   # create "work" with first tab "api" in ~/Code/api and attach
   tmux-session --session work --create notes ~/notes    # add "notes" tab to existing "work" session
@@ -134,20 +158,23 @@ EOF
 }
 
 ACTION=""
+SESSION_EXPLICIT=0
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         -s|--session)
             [ $# -ge 2 ] || die "$1 requires <name>"
             SESSION_NAME="$2"
+            SESSION_EXPLICIT=1
             shift 2
             ;;
         --session=*)
             SESSION_NAME="${1#--session=}"
+            SESSION_EXPLICIT=1
             shift
             ;;
-        --resume|--create|--detach|--list)
-            [ -z "$ACTION" ] || die "specify only one of --resume/--create/--detach/--list"
+        --resume|--create|--detach|--list|--ls)
+            [ -z "$ACTION" ] || die "specify only one action"
             ACTION="$1"
             shift
             ;;
@@ -159,6 +186,12 @@ while [ $# -gt 0 ]; do
             ;;
         -*)
             die "unknown option: $1"
+            ;;
+        ls)
+            # Positional alias for --ls (lists all sessions by default).
+            [ -z "$ACTION" ] || die "specify only one action"
+            ACTION="--ls"
+            shift
             ;;
         *)
             ARGS+=("$1"); shift
@@ -182,7 +215,17 @@ case "$ACTION" in
         cmd_detach
         ;;
     --list)
+        # --list is session-scoped (use --session to pick the session).
         [ ${#ARGS[@]} -eq 0 ] || die "--list takes no positional arguments"
-        cmd_list
+        cmd_ls_one
+        ;;
+    --ls)
+        # `ls` / `--ls`: scoped if --session was explicit, otherwise all sessions.
+        [ ${#ARGS[@]} -eq 0 ] || die "ls takes no positional arguments"
+        if [ "$SESSION_EXPLICIT" = "1" ]; then
+            cmd_ls_one
+        else
+            cmd_ls_all
+        fi
         ;;
 esac
