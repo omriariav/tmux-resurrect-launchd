@@ -546,14 +546,15 @@ session: work
             <div>
               <h3>Delete windows or panes</h3>
               <p>
-                Use <code>--delete</code> or <code>--delete-window</code> for a whole window by index or current name. Use <code>--delete-pane</code> with a window ref and pane index or pane id from <code>ls</code>.
+                Use <code>--delete</code> or <code>--delete-window</code> for a whole window by index or current name. Use <code>--delete-pane</code> with a window ref and pane index or pane id from <code>ls</code>. To intentionally remove a whole session, use <code>--delete-session</code> or <code>--kill-session</code> with the session name as an explicit argument.
               </p>
               <div class="terminal" role="group" aria-label="Delete windows and panes">
                 <div class="terminal-head"><span class="dot"></span>delete</div>
                 <pre><span class="prompt">$</span> tmux-session --delete notes
 <span class="prompt">$</span> tmux-session --delete-window 2
 <span class="prompt">$</span> tmux-session --delete-pane api 1
-<span class="prompt">$</span> tmux-session --delete-pane api '%13'</pre>
+<span class="prompt">$</span> tmux-session --delete-pane api '%13'
+<span class="prompt">$</span> tmux-session --delete-session work</pre>
               </div>
             </div>
           </article>
@@ -731,6 +732,10 @@ session: work
             <tr>
               <td>Delete one pane</td>
               <td><code>tmux-session --delete-pane api '%13'</code></td>
+            </tr>
+            <tr>
+              <td>Delete one session</td>
+              <td><code>tmux-session --delete-session work</code></td>
             </tr>
             <tr>
               <td>Rename one window</td>

@@ -76,6 +76,7 @@ tmux-session --session main --list                    # tabs + panes in one sess
 tmux-session --delete notes                           # delete window "notes" from main
 tmux-session --delete-pane api 1                      # delete pane index 1 from window "api"
 tmux-session --delete-pane api '%13'                  # delete pane id %13 from window "api"
+tmux-session --delete-session work                    # delete the whole "work" session
 tmux-session --rename 0 pm-os                         # rename window 0 in main
 tmux-session --rename-all                             # auto-rename all to basename(folder)
 tmux-session --detach
@@ -106,7 +107,14 @@ tmux-session --delete-pane api 1
 tmux-session --delete-pane api '%13'
 ```
 
-The delete commands refuse to remove the last window in a session or the last pane in a window.
+Window and pane delete commands refuse to remove the last window in a session or the last pane in a window. To intentionally delete a whole session, use `--delete-session <name>` or `--kill-session <name>`:
+
+```bash
+tmux-session --delete-session work
+tmux-session --kill-session work
+```
+
+Session deletion requires the session name as an explicit argument, rather than using the default `main` or `--session <name>`.
 
 ### Renaming windows
 
