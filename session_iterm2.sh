@@ -20,6 +20,7 @@
 #   tmux-session [--session <name>] --list                  print tabs and panes in the session
 #   tmux-session [--session <name>] --delete <ref>          delete a tab/window
 #   tmux-session [--session <name>] --delete-pane <ref> <pane-ref>
+#   tmux-session --delete-session <name>                    delete a whole session
 #
 # Defaults: session is "main" (override with --session or TMUX_SESSION_NAME).
 # Both --resume and --create attach via `tmux -CC attach`.
@@ -61,6 +62,8 @@ validate_name() {
 }
 
 session_exists() { tmux has-session -t "$SESSION_NAME" 2>/dev/null; }
+
+session_exists_named() { tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -Fxq "$1"; }
 
 tab_index_by_name() {
     tmux list-windows -t "$SESSION_NAME" -F '#{window_index}|#{window_name}' 2>/dev/null \
@@ -215,6 +218,19 @@ cmd_delete_pane() {
     printf 'deleted pane %s in window %s\n' "$pane_target" "$window_target"
 }
 
+cmd_delete_session() {
+    local name current
+    name="$1"
+    validate_name "session name" "$name"
+    session_exists_named "$name" || die "tmux session '$name' is not running"
+    if [ -n "${TMUX:-}" ]; then
+        current=$(tmux display-message -p '#S' 2>/dev/null || true)
+        [ "$current" != "$name" ] || die "refusing to delete the current tmux session from inside it"
+    fi
+    tmux kill-session -t "$name"
+    printf 'deleted session %s\n' "$name"
+}
+
 cmd_rename_all() {
     # Rename every window in the session to basename(pane_current_path) of
     # its active pane. Useful for tidying up sessions where windows
@@ -269,6 +285,8 @@ Usage:
   tmux-session [--session <name>] --delete-window <ref> delete one window (ref = index or current name)
   tmux-session [--session <name>] --delete-pane <window-ref> <pane-ref>
                                                           delete one pane (pane-ref = index or %id)
+  tmux-session --delete-session <name>                  delete one session
+  tmux-session --kill-session <name>                    delete one session
   tmux-session [--session <name>] --rename <ref> <new>  rename one window (ref = index or current name)
   tmux-session [--session <name>] --rename-all         rename all windows to basename(folder)
 
@@ -285,6 +303,7 @@ Examples:
   tmux-session --delete notes                            # delete window "notes" from main
   tmux-session --delete-pane api 1                       # delete pane index 1 from window "api"
   tmux-session --delete-pane api '%13'                   # delete pane id %13 from window "api"
+  tmux-session --delete-session work                     # delete the whole "work" session
   tmux-session --rename 0 pm-os                         # rename window 0 in main to "pm-os"
   tmux-session --rename-all                             # auto-rename all main windows to their folder basename
 EOF
@@ -306,7 +325,7 @@ while [ $# -gt 0 ]; do
             SESSION_EXPLICIT=1
             shift
             ;;
-        --resume|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--rename|--rename-all)
+        --resume|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--delete-session|--kill-session|--rename|--rename-all)
             [ -z "$ACTION" ] || die "specify only one action"
             ACTION="$1"
             shift
@@ -332,7 +351,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-validate_name "session name" "$SESSION_NAME"
+case "$ACTION" in
+    --delete-session|--kill-session) ;;
+    *) validate_name "session name" "$SESSION_NAME" ;;
+esac
 
 case "$ACTION" in
     ""|--resume)
@@ -363,6 +385,11 @@ case "$ACTION" in
     --delete-pane)
         [ ${#ARGS[@]} -eq 2 ] || die "--delete-pane requires <window-ref> <pane-ref>"
         cmd_delete_pane "${ARGS[0]}" "${ARGS[1]}"
+        ;;
+    --delete-session|--kill-session)
+        [ "$SESSION_EXPLICIT" = "0" ] || die "$ACTION takes an explicit session name argument; do not use --session"
+        [ ${#ARGS[@]} -eq 1 ] || die "$ACTION requires <session-name>"
+        cmd_delete_session "${ARGS[0]}"
         ;;
     --rename-all)
         [ ${#ARGS[@]} -eq 0 ] || die "--rename-all takes no positional arguments"
