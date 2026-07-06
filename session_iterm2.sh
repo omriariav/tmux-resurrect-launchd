@@ -17,7 +17,9 @@
 #   tmux-session [--session <name>] [--resume]              resume (default; creates the session if needed)
 #   tmux-session [--session <name>] --create <tab> <dir>    add or select a tab and attach
 #   tmux-session [--session <name>] --detach                detach all clients from the session
-#   tmux-session [--session <name>] --list                  print tabs in the session
+#   tmux-session [--session <name>] --list                  print tabs and panes in the session
+#   tmux-session [--session <name>] --delete <ref>          delete a tab/window
+#   tmux-session [--session <name>] --delete-pane <ref> <pane-ref>
 #
 # Defaults: session is "main" (override with --session or TMUX_SESSION_NAME).
 # Both --resume and --create attach via `tmux -CC attach`.
@@ -105,8 +107,28 @@ cmd_detach() {
 }
 
 print_session_windows() {
-    tmux list-windows -t "$1" \
-        -F '  #{?window_active,* , }#{window_index}: #{window_name}  (#{window_panes}p)  #{pane_current_path}'
+    local session="$1" active idx name panes path prefix
+    local pane_active pane_idx pane_id pane_cmd pane_path pane_prefix
+    tmux list-windows -t "$session" \
+        -F '#{window_active}|#{window_index}|#{window_name}|#{window_panes}|#{pane_current_path}' \
+        | while IFS='|' read -r active idx name panes path; do
+            if [ "$active" = "1" ]; then
+                prefix="* "
+            else
+                prefix="  "
+            fi
+            printf '  %s%s: %s  (%sp)  %s\n' "$prefix" "$idx" "$name" "$panes" "$path"
+            tmux list-panes -t "$session:$idx" \
+                -F '#{pane_active}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_current_path}' \
+                | while IFS='|' read -r pane_active pane_idx pane_id pane_cmd pane_path; do
+                    if [ "$pane_active" = "1" ]; then
+                        pane_prefix="* "
+                    else
+                        pane_prefix="  "
+                    fi
+                    printf '      %spane %s  %s  %s  %s\n' "$pane_prefix" "$pane_idx" "$pane_id" "$pane_cmd" "$pane_path"
+                done
+        done
 }
 
 cmd_ls_one() {
@@ -135,6 +157,29 @@ resolve_window() {
     printf '%s:%s\n' "$SESSION_NAME" "$idx"
 }
 
+resolve_pane() {
+    # Resolve a pane reference within a window. Numeric refs are pane
+    # indexes; %NN refs are stable tmux pane ids.
+    local window_target="$1" ref="$2" target
+    case "$ref" in
+        %*)
+            target=$(tmux list-panes -t "$window_target" -F '#{pane_id}' 2>/dev/null \
+                | awk -v want="$ref" '$0 == want { print; exit }')
+            [ -n "$target" ] || die "pane not found in $window_target: $ref"
+            ;;
+        ''|*[!0-9]*)
+            die "pane ref must be a pane index or pane id like %13"
+            ;;
+        *)
+            tmux list-panes -t "$window_target" -F '#{pane_index}' 2>/dev/null \
+                | grep -qx "$ref" \
+                || die "pane index $ref not present in $window_target"
+            target="$window_target.$ref"
+            ;;
+    esac
+    printf '%s\n' "$target"
+}
+
 cmd_rename() {
     local ref new_name target
     ref="$1"
@@ -144,6 +189,30 @@ cmd_rename() {
     target=$(resolve_window "$ref")
     tmux rename-window -t "$target" "$new_name"
     printf 'renamed %s -> %s\n' "$target" "$new_name"
+}
+
+cmd_delete_window() {
+    local ref target count
+    ref="$1"
+    session_exists || die "tmux session '$SESSION_NAME' is not running"
+    target=$(resolve_window "$ref")
+    count=$(tmux list-windows -t "$SESSION_NAME" -F '#{window_index}' | awk 'END { print NR + 0 }')
+    [ "$count" -gt 1 ] || die "refusing to delete the last window in session '$SESSION_NAME'"
+    tmux kill-window -t "$target"
+    printf 'deleted window %s\n' "$target"
+}
+
+cmd_delete_pane() {
+    local window_ref pane_ref window_target pane_target count
+    window_ref="$1"
+    pane_ref="$2"
+    session_exists || die "tmux session '$SESSION_NAME' is not running"
+    window_target=$(resolve_window "$window_ref")
+    pane_target=$(resolve_pane "$window_target" "$pane_ref")
+    count=$(tmux list-panes -t "$window_target" -F '#{pane_index}' | awk 'END { print NR + 0 }')
+    [ "$count" -gt 1 ] || die "refusing to delete the last pane in $window_target; use --delete-window $window_ref"
+    tmux kill-pane -t "$pane_target"
+    printf 'deleted pane %s in window %s\n' "$pane_target" "$window_target"
 }
 
 cmd_rename_all() {
@@ -194,8 +263,12 @@ Usage:
   tmux-session [--session <name>] [--resume]            resume (default; creates if needed)
   tmux-session [--session <name>] --create <tab> <dir>  add/select a tab and attach
   tmux-session [--session <name>] --detach              detach all clients
-  tmux-session ls                                       list all sessions and their tabs
-  tmux-session --session <name> --list                  list tabs in one session
+  tmux-session ls                                       list all sessions, tabs, and panes
+  tmux-session --session <name> --list                  list tabs and panes in one session
+  tmux-session [--session <name>] --delete <ref>        delete one window (ref = index or current name)
+  tmux-session [--session <name>] --delete-window <ref> delete one window (ref = index or current name)
+  tmux-session [--session <name>] --delete-pane <window-ref> <pane-ref>
+                                                          delete one pane (pane-ref = index or %id)
   tmux-session [--session <name>] --rename <ref> <new>  rename one window (ref = index or current name)
   tmux-session [--session <name>] --rename-all         rename all windows to basename(folder)
 
@@ -205,10 +278,13 @@ Default session is "main" (override with --session or TMUX_SESSION_NAME).
 
 Examples:
   tmux-session                                          # resume main
-  tmux-session ls                                       # all sessions + tabs
+  tmux-session ls                                       # all sessions + tabs + panes
   tmux-session --session work --resume                  # resume/create "work" with a default shell tab
   tmux-session --session work --create api ~/Code/api   # create "work" with first tab "api" in ~/Code/api and attach
   tmux-session --session work --create notes ~/notes    # add "notes" tab to existing "work" session
+  tmux-session --delete notes                            # delete window "notes" from main
+  tmux-session --delete-pane api 1                       # delete pane index 1 from window "api"
+  tmux-session --delete-pane api '%13'                   # delete pane id %13 from window "api"
   tmux-session --rename 0 pm-os                         # rename window 0 in main to "pm-os"
   tmux-session --rename-all                             # auto-rename all main windows to their folder basename
 EOF
@@ -230,7 +306,7 @@ while [ $# -gt 0 ]; do
             SESSION_EXPLICIT=1
             shift
             ;;
-        --resume|--create|--detach|--list|--ls|--rename|--rename-all)
+        --resume|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--rename|--rename-all)
             [ -z "$ACTION" ] || die "specify only one action"
             ACTION="$1"
             shift
@@ -279,6 +355,14 @@ case "$ACTION" in
     --rename)
         [ ${#ARGS[@]} -eq 2 ] || die "--rename requires <window-ref> <new-name>"
         cmd_rename "${ARGS[0]}" "${ARGS[1]}"
+        ;;
+    --delete|--delete-window)
+        [ ${#ARGS[@]} -eq 1 ] || die "$ACTION requires <window-ref>"
+        cmd_delete_window "${ARGS[0]}"
+        ;;
+    --delete-pane)
+        [ ${#ARGS[@]} -eq 2 ] || die "--delete-pane requires <window-ref> <pane-ref>"
+        cmd_delete_pane "${ARGS[0]}" "${ARGS[1]}"
         ;;
     --rename-all)
         [ ${#ARGS[@]} -eq 0 ] || die "--rename-all takes no positional arguments"

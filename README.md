@@ -71,8 +71,11 @@ tmux-session                                         # resume main
 tmux-session --session work --resume                 # resume/create "work"
 tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
 tmux-session --session work --create api ~/Code/api
-tmux-session ls                                       # all sessions + tabs
-tmux-session --session main --list                    # tabs in one session
+tmux-session ls                                       # all sessions + tabs + panes
+tmux-session --session main --list                    # tabs + panes in one session
+tmux-session --delete notes                           # delete window "notes" from main
+tmux-session --delete-pane api 1                      # delete pane index 1 from window "api"
+tmux-session --delete-pane api '%13'                  # delete pane id %13 from window "api"
 tmux-session --rename 0 pm-os                         # rename window 0 in main
 tmux-session --rename-all                             # auto-rename all to basename(folder)
 tmux-session --detach
@@ -81,6 +84,29 @@ tmux-session --detach
 `--create` attaches in one shot — no follow-up `--resume` needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab name already exists, the launcher selects it instead of duplicating.
 
 Running `--resume` or `--create` from **inside** an existing tmux client is refused (the historical `switch-client` behavior silently hijacked the current `-CC` connection to a different session — surprising). The error points at `tmux new-window` for the "add tab to current session" case.
+
+### Listing and deleting
+
+`tmux-session ls` and `tmux-session --session <name> --list` show windows and panes. Pane rows include both the pane index and stable pane id, so either form can be used when deleting a pane:
+
+```text
+session: main
+  * 0: api  (3p)  /Users/omri.a/Code/api
+      * pane 0  %12  zsh   /Users/omri.a/Code/api
+        pane 1  %13  vim   /Users/omri.a/Code/api
+        pane 2  %14  node  /Users/omri.a/Code/api
+```
+
+Use `--delete` or `--delete-window` to remove a whole window by index or current name. Use `--delete-pane <window-ref> <pane-ref>` to remove one pane by pane index or pane id:
+
+```bash
+tmux-session --delete notes
+tmux-session --delete-window 2
+tmux-session --delete-pane api 1
+tmux-session --delete-pane api '%13'
+```
+
+The delete commands refuse to remove the last window in a session or the last pane in a window.
 
 ### Renaming windows
 
