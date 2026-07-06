@@ -495,18 +495,24 @@
           <article class="step">
             <div>
               <h3>See what sessions exist</h3>
-              <p><code>ls</code> prints every session on the tmux server with its tabs and an <code>(attached, N clients)</code> marker for live ones. Pair with <code>--session &lt;name&gt; --list</code> to scope to a single session.</p>
+              <p><code>ls</code> prints every session on the tmux server with its tabs, panes, and an <code>(attached, N clients)</code> marker for live ones. Pair with <code>--session &lt;name&gt; --list</code> to scope to a single session.</p>
               <div class="terminal" role="group" aria-label="List sessions">
                 <div class="terminal-head"><span class="dot"></span>list</div>
                 <pre><span class="prompt">$</span> tmux-session ls
 
 session: main (attached, 1 client)
    0: pm-os         (1p)  /Users/omri.a/Code/taboola-pm-os
+     * pane 0  %12  zsh    /Users/omri.a/Code/taboola-pm-os
    1: data-track    (2p)  /Users/omri.a/Code/data-track-map
+     * pane 0  %13  vim    /Users/omri.a/Code/data-track-map
+       pane 1  %14  zsh    /Users/omri.a/Code/data-track-map
  * 2: handoff       (4p)  /Users/omri.a/Code/handoff
+     * pane 0  %15  zsh    /Users/omri.a/Code/handoff
+       pane 1  %16  node   /Users/omri.a/Code/handoff
 
 session: work
-   0: api           (1p)  /Users/omri.a/Code/api</pre>
+   0: api           (1p)  /Users/omri.a/Code/api
+     * pane 0  %19  zsh    /Users/omri.a/Code/api</pre>
               </div>
             </div>
           </article>
@@ -533,6 +539,21 @@ session: work
                 <pre><span class="prompt">$</span> tmux-session --session work --resume
 <span class="prompt">$</span> tmux-session --session work --create api ~/Code/api
 <span class="prompt">$</span> TMUX_SESSION_NAME=work tmux-session --resume</pre>
+              </div>
+            </div>
+          </article>
+          <article class="step">
+            <div>
+              <h3>Delete windows or panes</h3>
+              <p>
+                Use <code>--delete</code> or <code>--delete-window</code> for a whole window by index or current name. Use <code>--delete-pane</code> with a window ref and pane index or pane id from <code>ls</code>.
+              </p>
+              <div class="terminal" role="group" aria-label="Delete windows and panes">
+                <div class="terminal-head"><span class="dot"></span>delete</div>
+                <pre><span class="prompt">$</span> tmux-session --delete notes
+<span class="prompt">$</span> tmux-session --delete-window 2
+<span class="prompt">$</span> tmux-session --delete-pane api 1
+<span class="prompt">$</span> tmux-session --delete-pane api '%13'</pre>
               </div>
             </div>
           </article>
@@ -688,11 +709,11 @@ session: work
               <td><code>tmux-session --session work --resume</code></td>
             </tr>
             <tr>
-              <td>List all sessions and their tabs</td>
+              <td>List all sessions, tabs, and panes</td>
               <td><code>tmux-session ls</code></td>
             </tr>
             <tr>
-              <td>List tabs in one session</td>
+              <td>List tabs and panes in one session</td>
               <td><code>tmux-session --session main --list</code></td>
             </tr>
             <tr>
@@ -702,6 +723,14 @@ session: work
             <tr>
               <td>Create a tab in a named session</td>
               <td><code>tmux-session --session work --create api ~/Code/api</code></td>
+            </tr>
+            <tr>
+              <td>Delete one window</td>
+              <td><code>tmux-session --delete notes</code></td>
+            </tr>
+            <tr>
+              <td>Delete one pane</td>
+              <td><code>tmux-session --delete-pane api '%13'</code></td>
             </tr>
             <tr>
               <td>Rename one window</td>
