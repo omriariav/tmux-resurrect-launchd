@@ -68,6 +68,7 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 ```bash
 tmux-session                                         # resume main
+tmux-session --session work --attach                 # attach only if "work" already exists
 tmux-session --session work --resume                 # resume/create "work"
 tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
 tmux-session --session work --create api ~/Code/api
@@ -82,9 +83,9 @@ tmux-session --rename-all                             # auto-rename all to basen
 tmux-session --detach
 ```
 
-`--create` attaches in one shot — no follow-up `--resume` needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab name already exists, the launcher selects it instead of duplicating.
+`--attach` attaches only to an existing session and fails if it is not running. `--resume` creates a missing session before attaching. `--create` attaches in one shot — no follow-up `--resume` needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab name already exists, the launcher selects it instead of duplicating.
 
-Running `--resume` or `--create` from **inside** an existing tmux client is refused (the historical `switch-client` behavior silently hijacked the current `-CC` connection to a different session — surprising). The error points at `tmux new-window` for the "add tab to current session" case.
+Running `--resume`, `--attach`, or `--create` from **inside** an existing tmux client is refused (the historical `switch-client` behavior silently hijacked the current `-CC` connection to a different session — surprising). The error points at `tmux new-window` for the "add tab to current session" case.
 
 ### Listing and deleting
 

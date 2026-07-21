@@ -15,6 +15,7 @@
 #
 # Commands:
 #   tmux-session [--session <name>] [--resume]              resume (default; creates the session if needed)
+#   tmux-session [--session <name>] --attach                attach to an existing session
 #   tmux-session [--session <name>] --create <tab> <dir>    add or select a tab and attach
 #   tmux-session [--session <name>] --detach                detach all clients from the session
 #   tmux-session [--session <name>] --list                  print tabs and panes in the session
@@ -23,7 +24,7 @@
 #   tmux-session --delete-session <name>                    delete a whole session
 #
 # Defaults: session is "main" (override with --session or TMUX_SESSION_NAME).
-# Both --resume and --create attach via `tmux -CC attach`.
+# --resume, --attach, and --create attach via `tmux -CC attach`.
 
 set -euo pipefail
 
@@ -77,6 +78,12 @@ attach() {
 cmd_resume() {
     require_outside_tmux
     session_exists || tmux new-session -d -s "$SESSION_NAME" -n shell -c "$HOME"
+    attach
+}
+
+cmd_attach() {
+    require_outside_tmux
+    session_exists || die "tmux session '$SESSION_NAME' is not running"
     attach
 }
 
@@ -277,6 +284,7 @@ tmux-session - iTerm2-first launcher for tmux sessions.
 
 Usage:
   tmux-session [--session <name>] [--resume]            resume (default; creates if needed)
+  tmux-session [--session <name>] --attach              attach to an existing session
   tmux-session [--session <name>] --create <tab> <dir>  add/select a tab and attach
   tmux-session [--session <name>] --detach              detach all clients
   tmux-session ls                                       list all sessions, tabs, and panes
@@ -297,6 +305,7 @@ Default session is "main" (override with --session or TMUX_SESSION_NAME).
 Examples:
   tmux-session                                          # resume main
   tmux-session ls                                       # all sessions + tabs + panes
+  tmux-session --session work --attach                  # attach to existing "work"
   tmux-session --session work --resume                  # resume/create "work" with a default shell tab
   tmux-session --session work --create api ~/Code/api   # create "work" with first tab "api" in ~/Code/api and attach
   tmux-session --session work --create notes ~/notes    # add "notes" tab to existing "work" session
@@ -325,7 +334,7 @@ while [ $# -gt 0 ]; do
             SESSION_EXPLICIT=1
             shift
             ;;
-        --resume|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--delete-session|--kill-session|--rename|--rename-all)
+        --resume|--attach|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--delete-session|--kill-session|--rename|--rename-all)
             [ -z "$ACTION" ] || die "specify only one action"
             ACTION="$1"
             shift
@@ -360,6 +369,10 @@ case "$ACTION" in
     ""|--resume)
         [ ${#ARGS[@]} -eq 0 ] || die "--resume takes no positional arguments"
         cmd_resume
+        ;;
+    --attach)
+        [ ${#ARGS[@]} -eq 0 ] || die "--attach takes no positional arguments"
+        cmd_attach
         ;;
     --create)
         [ ${#ARGS[@]} -eq 2 ] || die "--create requires <tab-name> <folder>"
