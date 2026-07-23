@@ -24,7 +24,9 @@ set -euo pipefail
 
 SESSION_NAME="${TMUX_SESSION_NAME:-main}"
 USE_CC=0
-[ "${TMUX_SESSION_CC:-}" = "1" ] && USE_CC=1
+if [ "${TMUX_SESSION_CC:-}" = "1" ]; then
+    USE_CC=1
+fi
 
 die() {
     printf 'tmux-session: %s\n' "$*" >&2
@@ -33,7 +35,7 @@ die() {
 
 # Refuse to run an attach action from inside an existing tmux client.
 # The historical behavior was `tmux switch-client`, which silently
-# hijacks the current -CC connection to a different session — surprising
+# hijacks the current client connection to a different session — surprising
 # and the source of "where did my main session go" reports. For adding
 # a tab to the session you're already in, `tmux new-window` does the
 # right thing without this wrapper.
@@ -296,7 +298,10 @@ Usage:
   tmux-session --kill-session <name>                    delete one session
   tmux-session [--session <name>] --rename <ref> <new>  rename one window (ref = index or current name)
   tmux-session [--session <name>] --rename-all         rename all windows to basename(folder)
-  tmux-session [--cc|--plain] <attach action>          select iTerm2 control mode or native tmux mode
+
+Flags:
+  --cc                                                   use iTerm2's tmux control mode for an attach action
+  --plain                                                use native tmux mode for an attach action
 
 Attachments use native tmux by default. `--cc` opts into iTerm2's `tmux -CC`
 control mode (also settable as TMUX_SESSION_CC=1); `--plain` explicitly uses
@@ -323,6 +328,7 @@ EOF
 ACTION=""
 SESSION_EXPLICIT=0
 ATTACH_MODE_EXPLICIT=0
+ATTACH_MODE=""
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -338,15 +344,19 @@ while [ $# -gt 0 ]; do
             shift
             ;;
         --cc)
-            [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "specify only one of --cc and --plain"
-            USE_CC=1
-            ATTACH_MODE_EXPLICIT=1
+            case "$ATTACH_MODE" in
+                '') USE_CC=1; ATTACH_MODE_EXPLICIT=1; ATTACH_MODE="--cc" ;;
+                --cc) die "--cc may only be specified once" ;;
+                --plain) die "--cc and --plain cannot be combined" ;;
+            esac
             shift
             ;;
         --plain)
-            [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "specify only one of --cc and --plain"
-            USE_CC=0
-            ATTACH_MODE_EXPLICIT=1
+            case "$ATTACH_MODE" in
+                '') USE_CC=0; ATTACH_MODE_EXPLICIT=1; ATTACH_MODE="--plain" ;;
+                --plain) die "--plain may only be specified once" ;;
+                --cc) die "--cc and --plain cannot be combined" ;;
+            esac
             shift
             ;;
         --resume|--attach|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--delete-session|--kill-session|--rename|--rename-all)
