@@ -327,7 +327,6 @@ EOF
 
 ACTION=""
 SESSION_EXPLICIT=0
-ATTACH_MODE_EXPLICIT=0
 ATTACH_MODE=""
 ARGS=()
 while [ $# -gt 0 ]; do
@@ -345,7 +344,7 @@ while [ $# -gt 0 ]; do
             ;;
         --cc)
             case "$ATTACH_MODE" in
-                '') USE_CC=1; ATTACH_MODE_EXPLICIT=1; ATTACH_MODE="--cc" ;;
+                '') USE_CC=1; ATTACH_MODE="--cc" ;;
                 --cc) die "--cc may only be specified once" ;;
                 --plain) die "--cc and --plain cannot be combined" ;;
             esac
@@ -353,7 +352,7 @@ while [ $# -gt 0 ]; do
             ;;
         --plain)
             case "$ATTACH_MODE" in
-                '') USE_CC=0; ATTACH_MODE_EXPLICIT=1; ATTACH_MODE="--plain" ;;
+                '') USE_CC=0; ATTACH_MODE="--plain" ;;
                 --plain) die "--plain may only be specified once" ;;
                 --cc) die "--cc and --plain cannot be combined" ;;
             esac
@@ -392,7 +391,7 @@ esac
 
 case "$ACTION" in
     ""|--resume|--attach|--create) ;;
-    *) [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "--cc and --plain are only valid with --resume, --attach, or --create" ;;
+    *) [ -z "$ATTACH_MODE" ] || die "--cc and --plain are only valid with --resume, --attach, or --create" ;;
 esac
 
 case "$ACTION" in
