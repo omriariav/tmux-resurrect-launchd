@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# iTerm2-first tmux launcher.
+# tmux session launcher.
 #
-# How iTerm2 native tmux integration (`tmux -CC`) actually behaves:
-#   - Run this from a fresh (non-tmux) iTerm2 window.
-#   - That window becomes the -CC control channel — you'll see iTerm2's
-#     "Command Menu / esc Detach cleanly" prompt. Don't work there;
-#     minimize it. Press `esc` to cleanly detach the session.
-#   - iTerm2 opens a separate native iTerm2 window for each tmux window
-#     in the session. Those are where you actually work.
-#   - To run two sessions side-by-side, open a second fresh iTerm2 window
-#     (Shell -> New Window, not Cmd-T inside the tmux-attached window)
-#     and run --resume there for the other session. You get one control
-#     channel per session plus N working windows per session.
+# Attachments are native tmux by default. This avoids routing terminal input
+# and pane output through iTerm2's `tmux -CC` control channel, which can wedge
+# under sustained high-output TUI workloads. Use --cc (or TMUX_SESSION_CC=1)
+# only when iTerm2's window-per-tmux-window integration is wanted.
 #
 # Commands:
 #   tmux-session [--session <name>] [--resume]              resume (default; creates the session if needed)
@@ -24,11 +17,14 @@
 #   tmux-session --delete-session <name>                    delete a whole session
 #
 # Defaults: session is "main" (override with --session or TMUX_SESSION_NAME).
-# --resume, --attach, and --create attach via `tmux -CC attach`.
+# --resume, --attach, and --create attach natively by default. Pass --cc to
+# opt into iTerm2 control mode; --plain forces the native default.
 
 set -euo pipefail
 
 SESSION_NAME="${TMUX_SESSION_NAME:-main}"
+USE_CC=0
+[ "${TMUX_SESSION_CC:-}" = "1" ] && USE_CC=1
 
 die() {
     printf 'tmux-session: %s\n' "$*" >&2
@@ -72,7 +68,10 @@ tab_index_by_name() {
 }
 
 attach() {
-    exec tmux -CC attach-session -t "$SESSION_NAME"
+    if [ "$USE_CC" = "1" ]; then
+        exec tmux -CC attach-session -t "$SESSION_NAME"
+    fi
+    exec tmux attach-session -t "$SESSION_NAME"
 }
 
 cmd_resume() {
@@ -280,7 +279,7 @@ cmd_ls_all() {
 
 usage() {
     cat <<'EOF'
-tmux-session - iTerm2-first launcher for tmux sessions.
+tmux-session - launcher for tmux sessions.
 
 Usage:
   tmux-session [--session <name>] [--resume]            resume (default; creates if needed)
@@ -297,9 +296,11 @@ Usage:
   tmux-session --kill-session <name>                    delete one session
   tmux-session [--session <name>] --rename <ref> <new>  rename one window (ref = index or current name)
   tmux-session [--session <name>] --rename-all         rename all windows to basename(folder)
+  tmux-session [--cc|--plain] <attach action>          select iTerm2 control mode or native tmux mode
 
-Run from a fresh iTerm2 window — that window becomes the -CC control
-channel, and iTerm2 opens a native window per tmux window in the session.
+Attachments use native tmux by default. `--cc` opts into iTerm2's `tmux -CC`
+control mode (also settable as TMUX_SESSION_CC=1); `--plain` explicitly uses
+native tmux. `--cc` is only meaningful for --resume, --attach, and --create.
 Default session is "main" (override with --session or TMUX_SESSION_NAME).
 
 Examples:
@@ -307,6 +308,7 @@ Examples:
   tmux-session ls                                       # all sessions + tabs + panes
   tmux-session --session work --attach                  # attach to existing "work"
   tmux-session --session work --resume                  # resume/create "work" with a default shell tab
+  tmux-session --session work --cc --resume             # resume/create through iTerm2 control mode
   tmux-session --session work --create api ~/Code/api   # create "work" with first tab "api" in ~/Code/api and attach
   tmux-session --session work --create notes ~/notes    # add "notes" tab to existing "work" session
   tmux-session --delete notes                            # delete window "notes" from main
@@ -320,6 +322,7 @@ EOF
 
 ACTION=""
 SESSION_EXPLICIT=0
+ATTACH_MODE_EXPLICIT=0
 ARGS=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -332,6 +335,18 @@ while [ $# -gt 0 ]; do
         --session=*)
             SESSION_NAME="${1#--session=}"
             SESSION_EXPLICIT=1
+            shift
+            ;;
+        --cc)
+            [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "specify only one of --cc and --plain"
+            USE_CC=1
+            ATTACH_MODE_EXPLICIT=1
+            shift
+            ;;
+        --plain)
+            [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "specify only one of --cc and --plain"
+            USE_CC=0
+            ATTACH_MODE_EXPLICIT=1
             shift
             ;;
         --resume|--attach|--create|--detach|--list|--ls|--delete|--delete-window|--delete-pane|--delete-session|--kill-session|--rename|--rename-all)
@@ -363,6 +378,11 @@ done
 case "$ACTION" in
     --delete-session|--kill-session) ;;
     *) validate_name "session name" "$SESSION_NAME" ;;
+esac
+
+case "$ACTION" in
+    ""|--resume|--attach|--create) ;;
+    *) [ "$ATTACH_MODE_EXPLICIT" = "0" ] || die "--cc and --plain are only valid with --resume, --attach, or --create" ;;
 esac
 
 case "$ACTION" in

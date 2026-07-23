@@ -64,12 +64,16 @@ tmux-resurrect-restore --restore latest-good --no-confirm
 
 ## iTerm2 session launcher
 
-`tmux-session` is an iTerm2-first launcher for tmux sessions. It always uses `tmux -CC attach`, so the iTerm2 window you run it from becomes the **control channel** (showing iTerm2's "Command Menu / esc Detach cleanly" prompt — minimize it and ignore), and iTerm2 spawns a **separate native iTerm2 window per tmux window** in the session. Default session is `main` (override with `--session <name>` or `TMUX_SESSION_NAME`). To run two sessions in parallel, open a second fresh iTerm2 window from **Shell → New Window** and run a second `--resume` there.
+`tmux-session` launches and manages tmux sessions. Its attach actions use native `tmux attach-session` by default, keeping terminal input and pane output out of iTerm2's `-CC` control channel. This is the reliable choice for sustained high-output TUIs. Default session is `main` (override with `--session <name>` or `TMUX_SESSION_NAME`).
+
+For iTerm2's window-per-tmux-window integration, explicitly opt in with `--cc` (or `TMUX_SESSION_CC=1`). The iTerm2 window then becomes the **control channel** (showing iTerm2's "Command Menu / esc Detach cleanly" prompt), and iTerm2 opens a separate native window per tmux window in the session. Use `--plain` to force native attachment when `TMUX_SESSION_CC=1` is set.
 
 ```bash
 tmux-session                                         # resume main
 tmux-session --session work --attach                 # attach only if "work" already exists
 tmux-session --session work --resume                 # resume/create "work"
+tmux-session --session work --cc --resume            # resume/create using iTerm2's control mode
+TMUX_SESSION_CC=1 tmux-session --attach              # same opt-in via environment
 tmux-session --create taboola-pm-os ~/Code/taboola-pm-os
 tmux-session --session work --create api ~/Code/api
 tmux-session ls                                       # all sessions + tabs + panes
