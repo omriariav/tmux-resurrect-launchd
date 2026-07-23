@@ -421,20 +421,21 @@
         <h1>Control tmux sessions easily in iTerm2, with crash-safe restore.</h1>
         <p class="intro">
           This project installs a launchd save loop for tmux-resurrect, adds a restore picker,
-          and gives you a simple iTerm2-first <code>tmux-session</code> launcher.
+          and gives you a simple <code>tmux-session</code> launcher that works naturally in iTerm2.
         </p>
       </header>
 
       <section id="mental-model">
         <h2>Mental Model</h2>
         <p>
-          The launcher always uses <code>tmux -CC attach</code>. That is iTerm2's native tmux integration,
-          and its behavior is non-obvious until you see it:
+          The launcher uses native <code>tmux attach-session</code> by default, so you work in the terminal
+          where you launched it. For iTerm2's native window-per-tmux-window integration, opt in with
+          <code>--cc</code> (or <code>TMUX_SESSION_CC=1</code>). That optional mode is non-obvious until you see it:
         </p>
         <div class="grid">
           <div class="tile">
             <h3>Control channel</h3>
-            <p>The iTerm2 window you run <code>tmux-session</code> from becomes the <code>-CC</code> control channel — you'll see iTerm2's <em>"Command Menu / esc Detach cleanly"</em> prompt. Minimize it; don't work there. Press <code>esc</code> in it to detach the session cleanly.</p>
+            <p>When you use <code>--cc</code>, the iTerm2 window you run <code>tmux-session</code> from becomes the <code>-CC</code> control channel — you'll see iTerm2's <em>"Command Menu / esc Detach cleanly"</em> prompt. Minimize it; don't work there. Press <code>esc</code> in it to detach the session cleanly.</p>
           </div>
           <div class="tile">
             <h3>Working windows</h3>
@@ -450,7 +451,7 @@
           </div>
         </div>
         <div class="callout">
-          <strong>Two sessions in parallel:</strong> open a second fresh iTerm2 window via <strong>Shell → New Window</strong> (not <code>Cmd-T</code> inside the attached window) and run another <code>tmux-session --session &lt;name&gt; --resume</code> there. Each session gets its own control channel and its own native working windows. Default session is <code>main</code> (override with <code>--session &lt;name&gt;</code> or <code>TMUX_SESSION_NAME</code>).
+          <strong>Two sessions in parallel:</strong> open a second terminal outside tmux and run another <code>tmux-session --session &lt;name&gt; --resume</code> there. Native attachment stays in each terminal; add <code>--cc</code> only when you want iTerm2's control-channel and native-window integration. Default session is <code>main</code> (override with <code>--session &lt;name&gt;</code> or <code>TMUX_SESSION_NAME</code>).
         </div>
         <div class="callout">
           <strong>Refused inside tmux:</strong> running <code>--resume</code> or <code>--create</code> from inside an existing tmux pane is refused, with a hint pointing at <code>tmux new-window -n &lt;name&gt; -c &lt;dir&gt;</code> for the "add a tab here" case. (The old <code>switch-client</code> behavior silently hijacked the current connection.)
@@ -485,7 +486,7 @@
           <article class="step">
             <div>
               <h3>Resume your main tmux session</h3>
-              <p>Run this from a fresh iTerm2 window (the one it runs in becomes the <code>-CC</code> control channel; iTerm2 spawns separate native windows for the session's tmux windows).</p>
+              <p>Run this from a terminal outside tmux. It attaches in that terminal by default; add <code>--cc</code> if you want iTerm2 to open separate native windows for the session's tmux windows.</p>
               <div class="terminal" role="group" aria-label="Resume main session">
                 <div class="terminal-head"><span class="dot"></span>resume</div>
                 <pre><span class="prompt">$</span> tmux-session --resume</pre>
@@ -520,7 +521,7 @@ session: work
             <div>
               <h3>Create a tab for a project — and attach in one shot</h3>
               <p>
-                <code>--create</code> already attaches via <code>tmux -CC attach</code>; no follow-up <code>--resume</code> needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab already exists, the launcher selects it instead of duplicating.
+                <code>--create</code> already attaches using the selected mode (native tmux by default, or iTerm2 control mode with <code>--cc</code>); no follow-up <code>--resume</code> needed. If the session doesn't exist, it's created with the named tab as its only window. If the tab already exists, the launcher selects it instead of duplicating.
               </p>
               <div class="terminal" role="group" aria-label="Create tab">
                 <div class="terminal-head"><span class="dot"></span>create tab</div>
@@ -799,7 +800,7 @@ extended-keys off</pre>
 
         <h3>iTerm2 shows native tmux controls</h3>
         <p>
-          That is expected when <code>tmux-session</code> attaches with <code>tmux -CC</code>.
+          That is expected when <code>tmux-session</code> attaches with <code>--cc</code> (or <code>TMUX_SESSION_CC=1</code>), which uses <code>tmux -CC</code>.
           It means iTerm2 is rendering tmux sessions as native windows, tabs, and panes.
         </p>
 
